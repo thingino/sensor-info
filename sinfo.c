@@ -102,7 +102,7 @@ static const struct soc_desc soc_table[] = {
 	{ "t23",  "pike", PLLSTYLE_NEW, 0x7c, 30, 2, {PLL_A, PLL_M, PLL_NONE, PLL_NONE}, 1, 0, 18, -1, 0, 0, 1 },
 	{ "c100", NULL,   PLLSTYLE_NEW, 0x7c, 30, 2, {PLL_A, PLL_M, PLL_V, PLL_NONE}, 2, 0, 18, -1, 0, 0, 0 },
 	{ "t20",  "bull", PLLSTYLE_NEW, 0x7c, 30, 2, {PLL_A, PLL_M, PLL_V, PLL_V}, 2, 0, 18, -1, 0, 0, 1 },
-	{ "t30",  NULL,   PLLSTYLE_OLD, 0x7c, 30, 2, {PLL_A, PLL_M, PLL_V, PLL_E}, 2, 0, 18, -1, 0, 0, 0 },
+	{ "t30",  "monkey", PLLSTYLE_OLD, 0x7c, 30, 2, {PLL_A, PLL_M, PLL_V, PLL_E}, 2, 0, 18, -1, 0, 0, 1 },
 	{ "t21",  NULL,   PLLSTYLE_OLD, 0x7c, 30, 2, {PLL_A, PLL_M, PLL_V, PLL_E}, 2, 0, 18, -1, 0, 0, 0 },
 	{ "t10",  "mango", PLLSTYLE_NEW, 0x7c, 31, 1, {PLL_A, PLL_M, PLL_NONE, PLL_NONE}, 1, 0, 18, -1, 0, 0, 1 },
 	/* XBurst2: T40 sensor MCLK is CIM1 (kernel div_cim1), T41 is CIM0 */
@@ -244,6 +244,8 @@ static uint64_t pll_rate(int pll)
 	} else {
 		uint32_t od;
 
+		if (!(r & 1))	/* PLL not on (e.g. T30 EPLL) */
+			return 0;
 		m = (r >> 20) & 0x1ff;
 		n = (r >> 14) & 0x3f;
 		od = (r >> 11) & 0x7;
