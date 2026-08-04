@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: MIT */
+/* SPDX-License-Identifier: GPL-2.0 */
 #ifndef SINFO_MOCK_HW_H
 #define SINFO_MOCK_HW_H
 

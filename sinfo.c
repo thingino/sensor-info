@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0 */
 /*
  * sinfo - userspace Ingenic image sensor detector
  *
@@ -12,19 +13,14 @@
  * Requirements: root, CONFIG_I2C_CHARDEV, CONFIG_GPIO_SYSFS, CONFIG_DEVMEM.
  *
  * Usage:
- *   sinfo [options] [command]
+ *   sinfo [-s soc] [-b bus|all] [-m mclk] [-r gpio] [-p gpio] [-v] [command]
  * Commands:
  *   probe                     scan for sensors and print report (default)
  *   open <sensor>             set MCLK + reset for a named sensor, leave on
  *   release                   stop MCLK, free GPIOs
  *   i2c-r <addr> <len>        raw I2C read  (like echo i2c-r:... > proc)
  *   i2c-w <addr> <data> <len> raw I2C write (like echo i2c-w:... > proc)
- * Options:
- *   -s <soc>    SoC (t10/t20/t21/t23/t30/t31/c100/t40/t41); default: auto-detect
- *   -b <bus>    I2C bus number (default: per-SoC, 0)
- *   -r <gpio>   reset GPIO number (default: per-SoC, 18 = PA18; -1 = none)
- *   -p <gpio>   power-down GPIO number (default: -1 = none)
- *   -v          verbose progress on stderr
+ * Run sinfo -h for the option reference.
  */
 
 #include <stdio.h>

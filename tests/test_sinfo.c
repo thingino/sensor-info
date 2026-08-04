@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: GPL-2.0
 /*
  * test_sinfo.c - host-side unit tests (run under ASAN+UBSan)
  *
