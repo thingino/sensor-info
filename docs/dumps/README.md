@@ -32,6 +32,21 @@ dev board), dumped at 37.125 MHz:
   imx327 initialize this to 0x02 and imx290 to 0x00),
   0x31DC=0x0C, 0x309C=0x22.
 
+## Datasheet cross-check (IMX327 vs imx307 silicon)
+
+All 23 single-byte registers with documented "default value after
+reset" in the IMX327LQR-C technical datasheet (Rev 0.2) that fall in
+our dump range read exactly those defaults on real imx307 silicon -
+zero differences. Two conclusions: the documented register space
+cannot distinguish these models, and the dump method reads true
+reset defaults. The one register drivers set differently per model
+(0x3011: the 327 datasheet says "Set to 0Ah", default 00h) is an
+init-write difference only - both our 307s read its default 00h, so
+it is useless for reset-state probing. The registers that do differ
+per model on silicon (the 0x31DC fuse region, 0x309C) are exactly
+the ones the datasheets leave undocumented, which is why this
+archive exists.
+
 ## Wanted
 
 Dumps from known imx290, imx291, imx327, imx462, imx662 (and any
