@@ -136,6 +136,8 @@ struct i2c_scan_result {
 };
 static struct i2c_scan_result g_scan_results[MAX_I2C_SCAN_RESULTS];
 static int g_num_scan_results;
+/* observed ID reads per match, for grouping indistinguishable entries */
+static struct i2c_scan_result g_match_res[MAX_DETECTED_SENSORS];
 
 #define vlog(...) do { if (g_verbose) fprintf(stderr, "sinfo: " __VA_ARGS__); } while (0)
 #define elog(...) fprintf(stderr, "sinfo: [Error] " __VA_ARGS__)
@@ -619,6 +621,7 @@ static int do_probe(void)
 				sizeof(scan_res.sensor_name) - 1);
 
 			if (g_num_detected_sensors < MAX_DETECTED_SENSORS) {
+				g_match_res[g_num_detected_sensors] = scan_res;
 				g_sensor_ids[g_num_detected_sensors++] = i;
 				vlog("MATCH: %s, I2C bus %d, address 0x%02X\n",
 				     s->name, g_bus, s->i2c_addr);
@@ -637,19 +640,78 @@ static int do_probe(void)
 
 /* ---------------------------------------------------------------- report */
 
+/*
+ * Several table entries are rebadges with identical I2C address, ID
+ * registers and ID values (e.g. gc5603/gc5613, gc2053/gc2063). One
+ * physical chip matches all of them, so group matches whose observed
+ * reads are identical and report one device with the others as aliases.
+ */
+static int same_device(const struct i2c_scan_result *a,
+		       const struct i2c_scan_result *b)
+{
+	int j;
+
+	if (a->i2c_addr != b->i2c_addr || a->num_regs != b->num_regs)
+		return 0;
+	for (j = 0; j < a->num_regs; j++)
+		if (a->reg_addrs[j] != b->reg_addrs[j] ||
+		    a->reg_values[j] != b->reg_values[j])
+			return 0;
+	return 1;
+}
+
+static int g_num_devices;
+
 static void print_report(void)
 {
-	int i, j;
+	int grp[MAX_DETECTED_SENSORS];
+	int i, j, k, n;
 
 	printf("========== Sensor Detection Report ==========\n\n");
 
-	if (g_num_detected_sensors > 0) {
-		printf("MATCHED SENSORS (%d):\n", g_num_detected_sensors);
-		printf("-------------------------------------------\n");
-		for (i = 0; i < g_num_detected_sensors; i++) {
-			const struct sensor_def *s = &g_sinfo[g_sensor_ids[i]];
+	g_num_devices = 0;
+	for (i = 0; i < g_num_detected_sensors; i++) {
+		grp[i] = -1;
+		for (j = 0; j < i; j++)
+			if (same_device(&g_match_res[i], &g_match_res[j])) {
+				grp[i] = grp[j];
+				break;
+			}
+		if (grp[i] < 0)
+			grp[i] = g_num_devices++;
+	}
 
-			printf("%d. %s\n", i + 1, s->name);
+	if (g_num_detected_sensors > 0) {
+		printf("MATCHED SENSORS (%d):\n", g_num_devices);
+		printf("-------------------------------------------\n");
+		for (n = 0; n < g_num_devices; n++) {
+			const struct sensor_def *s = NULL;
+			int aliases = 0;
+
+			for (i = 0; i < g_num_detected_sensors; i++) {
+				if (grp[i] != n)
+					continue;
+				if (!s) {
+					s = &g_sinfo[g_sensor_ids[i]];
+					continue;
+				}
+				aliases++;
+			}
+
+			printf("%d. %s\n", n + 1, s->name);
+
+			if (aliases) {
+				printf("   Also matches: ");
+				for (i = 0, k = 0; i < g_num_detected_sensors; i++) {
+					if (grp[i] != n ||
+					    &g_sinfo[g_sensor_ids[i]] == s)
+						continue;
+					printf("%s%s", k++ ? ", " : "",
+					       g_sinfo[g_sensor_ids[i]].name);
+				}
+				printf(" (identical ID registers)\n");
+			}
+
 			printf("   I2C Bus: %d\n", g_bus);
 			printf("   I2C Address: 0x%02X\n", s->i2c_addr);
 			printf("   Clock: %s @ %u Hz\n", s->mclk_name, s->clk);
@@ -730,7 +792,7 @@ static void print_report(void)
 	printf("Reset GPIO: %d\n", g_reset_gpio);
 	printf("Power Down GPIO: %d\n", g_pwdn_gpio);
 	printf("\n");
-	printf("Detected sensors: %d\n", g_num_detected_sensors);
+	printf("Detected sensors: %d\n", g_num_devices);
 	printf("=============================================\n");
 }
 
