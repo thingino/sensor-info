@@ -400,6 +400,8 @@ static void test_probe_multibus(void)
 	mock_chip_reg(c, 0x03f1, 0x03);
 
 	CHECK_EQ(probe_all(), 0);
+	CHECK(report_contains("2 sensors found"));
+	CHECK(report_contains("on bus 2 at 0x31"));
 	silent_report();
 	CHECK_EQ(num_devices, 2);
 	{
@@ -524,22 +526,53 @@ static void test_report_scan_dump_verbose_only(void)
 	mock_chip_reg(c, 0x03f1, 0x53);
 	CHECK_EQ(probe_all(), 0);
 	verbose = 0;
-	CHECK(!report_contains("ALL I2C DEVICES"));
+	CHECK(!report_contains("I2C devices seen"));
 	CHECK(!report_contains("run with -v"));
+	CHECK(report_contains("gc4653 on bus 0 at 0x29 (MCLK 24 MHz)"));
 	verbose = 1;
-	CHECK(report_contains("ALL I2C DEVICES"));
+	CHECK(report_contains("I2C devices seen (1):"));
+	CHECK(report_contains("gc4653 [matched]"));
 
-	/* responder that matches nothing: default report points at -v */
+	/* responder that matches nothing: default report points at -v,
+	 * names the scanned bus, and verbose shows it collapsed once */
 	setup_probe("t31");
 	c = mock_chip_add(0, 0x29);
 	mock_chip_reg(c, 0x03f0, 0x99);
 	CHECK_EQ(probe_all(), 0);
 	verbose = 0;
-	CHECK(!report_contains("ALL I2C DEVICES"));
-	CHECK(report_contains("run with -v"));
+	CHECK(report_contains("no sensors detected on bus 0"));
+	CHECK(report_contains("rerun with -v"));
 	verbose = 1;
-	CHECK(report_contains("UNKNOWN DEVICE"));
+	CHECK(report_contains("bus 0 0x29: unmatched"));
+	CHECK(report_contains("0x03F0=0x99"));
 	verbose = 0;
+}
+
+static void test_report_quiet_and_multibus_scope(void)
+{
+	struct mock_chip *c;
+
+	/* -q prints the name and nothing else */
+	setup_probe("t31");
+	c = mock_chip_add(0, 0x29);
+	mock_chip_reg(c, 0x03f0, 0x46);
+	mock_chip_reg(c, 0x03f1, 0x53);
+	CHECK_EQ(probe_all(), 0);
+	quiet = 1;
+	CHECK(report_contains("gc4653"));
+	CHECK(!report_contains("bus"));
+	CHECK(!report_contains("MCLK"));
+	quiet = 0;
+
+	/* -b all no-match names every scanned bus */
+	setup_probe("t31");
+	bus_all = 1;
+	mock_nbuses = 2;
+	mock_buses[0] = 0;
+	mock_buses[1] = 3;
+	CHECK_EQ(probe_all(), 0);
+	CHECK(report_contains("no sensors detected on any bus (0, 3)"));
+	bus_all = 0;
 }
 
 static void test_gpio_claim_failure_warns_once(void)
@@ -656,6 +689,7 @@ int main(void)
 	test_dead_probe_cache();
 	test_probe_progress();
 	test_report_scan_dump_verbose_only();
+	test_report_quiet_and_multibus_scope();
 	test_gpio_claim_failure_warns_once();
 	test_gpio_export_ownership();
 	test_same_device_bus_aware();

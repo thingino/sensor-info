@@ -30,8 +30,25 @@ sinfo release                # stop MCLK, free GPIOs
 Run as root. If a sensor kernel driver is loaded it owns the reset
 GPIO and the bus; unload it (`rmmod sensor_*`) for a clean probe.
 
-Exit codes: `0` at least one sensor found, `1` none found, `2` error.
-The report ends with a script-friendly `Detected sensors: N` line.
+A found sensor is reported answer-first; probe progress ticks on
+stderr so stdout stays clean:
+
+```
+$ sinfo
+Probing bus 0... 290/290
+gc4653 on bus 0 at 0x29 (MCLK 24 MHz)
+  ID: 0x03F0=0x46 0x03F1=0x53
+```
+
+Rebadged twins are listed as `also matches:` under the lead name;
+multi-sensor units get a numbered list (device 1 is the primary).
+No match prints `no sensors detected on bus N` plus a pointer to
+`-v`, which appends every answering address with the union of its
+register reads (`I2C devices seen`).
+
+Exit codes: `0` at least one sensor found, `1` none found, `2`
+error. Scripts use `-q`, which prints only the detected sensor
+names, one per line.
 
 ### SoC auto-detection
 
@@ -122,8 +139,8 @@ a code hook in addition to the table row.
 ### Identifying an unknown sensor
 
 If a chip responds but nothing matches, run the probe with `-v`:
-the `ALL I2C DEVICES DETECTED` section shows every register that
-answered and the values read. To build the new csv line from that you need:
+the `I2C devices seen` section shows every address that answered
+with the distinct register reads observed. To build the new csv line from that you need:
 
 1. the sensor model name (board silkscreen, vendor firmware, or the
    value pattern - most vendors encode the model in the ID, e.g.
@@ -135,10 +152,8 @@ answered and the values read. To build the new csv line from that you need:
 4. the MCLK frequency (24000000 unless the vendor driver says
    otherwise).
 
-Note that entries probing the same address with different ID
-registers will show as extra "unknown device" rows in the report -
-partial reads of an already-identified chip are normal, not a
-second sensor.
+Each address appears once; partial reads from other table entries
+probing the same chip are folded into its register list.
 
 ## Building
 

@@ -253,8 +253,9 @@ static const struct soc_desc soc_table[] = {
 
 static const struct soc_desc *cur_soc;
 static const struct mclk_blk *cur_mclk;
-static int bus_nr = -1;	  /* -1 = use SoC default */
-static int bus_all;	  /* -b all: scan every /dev/i2c-* */
+static int bus_nr = -1; /* -1 = use SoC default */
+static int bus_all;
+static int quiet;	  /* -b all: scan every /dev/i2c-* */
 static int mclk_sel = -1; /* -1 = use SoC default */
 static int reset_pin = -9999;
 static int pwdn_pin = -1;
@@ -715,7 +716,7 @@ static void mark_dead(int bus, const struct sensor_def *s)
  */
 static void probe_progress(int bus, unsigned int done, unsigned int total)
 {
-	if (verbose)
+	if (verbose || quiet)
 		return;
 	if (isatty(2)) {
 		fprintf(stderr, "\rProbing bus %d... %u/%u", bus, done, total);
@@ -733,6 +734,8 @@ static void probe_progress(int bus, unsigned int done, unsigned int total)
  * via reg 0x801e, and the ov2735b alternate-ID quirk.
  */
 static uint32_t mclk_cur_rate;
+static int scanned_buses[MAX_I2C_BUSES];
+static int num_scanned;
 
 static int do_probe(int bus)
 {
@@ -887,9 +890,12 @@ static int probe_all(void)
 		n = 1;
 	}
 
-	for (i = 0; i < n; i++)
+	num_scanned = n;
+	for (i = 0; i < n; i++) {
+		scanned_buses[i] = buses[i];
 		if (do_probe(buses[i]) < 0)
 			return -1;
+	}
 
 	if (mclk_cur_rate)
 		mclk_disable();
@@ -921,12 +927,104 @@ static int same_device(const struct i2c_scan_result *a, const struct i2c_scan_re
 
 static int num_devices;
 
+static void fmt_mhz(uint32_t hz, char *buf, size_t len)
+{
+	if (hz % 1000000 == 0)
+		snprintf(buf, len, "%u MHz", hz / 1000000);
+	else
+		snprintf(buf, len, "%u.%03u MHz", hz / 1000000, (hz % 1000000) / 1000);
+}
+
+static void print_scan_scope(void)
+{
+	int i;
+
+	if (!bus_all) {
+		printf("on bus %d", bus_nr);
+		return;
+	}
+	printf("on any bus (");
+	for (i = 0; i < num_scanned; i++)
+		printf("%s%d", i ? ", " : "", scanned_buses[i]);
+	printf(")");
+}
+
+/*
+ * Verbose only: every address that answered, one row per (bus, addr)
+ * with the union of distinct register reads across all probe attempts.
+ * Distinct value pairs are kept on purpose: a register that reads
+ * differently across attempts (sc2336p before/after unlock) shows both.
+ */
+static void print_devices_seen(void)
+{
+	int printed[MAX_I2C_SCAN_RESULTS] = {0};
+	int i, j, k, ndev = 0;
+
+	for (i = 0; i < num_scan_results; i++) {
+		if (printed[i])
+			continue;
+		for (j = 0; j < i; j++)
+			if (scan_results[j].bus == scan_results[i].bus &&
+			    scan_results[j].i2c_addr == scan_results[i].i2c_addr)
+				break;
+		if (j == i)
+			ndev++;
+	}
+	if (!ndev) {
+		printf("no I2C devices answered\n");
+		return;
+	}
+
+	printf("I2C devices seen (%d):\n", ndev);
+	for (i = 0; i < num_scan_results; i++) {
+		const char *name = NULL;
+		uint32_t pr[32], pv[32];
+		int np = 0, over = 0;
+
+		if (printed[i])
+			continue;
+		for (j = i; j < num_scan_results; j++) {
+			struct i2c_scan_result *r = &scan_results[j];
+
+			if (r->bus != scan_results[i].bus ||
+			    r->i2c_addr != scan_results[i].i2c_addr)
+				continue;
+			printed[j] = 1;
+			if (!name && r->sensor_name[0])
+				name = r->sensor_name;
+			for (k = 0; k < r->num_regs; k++) {
+				int seen = 0, p;
+
+				for (p = 0; p < np; p++)
+					if (pr[p] == r->reg_addrs[k] && pv[p] == r->reg_values[k])
+						seen = 1;
+				if (seen)
+					continue;
+				if (np < 32) {
+					pr[np] = r->reg_addrs[k];
+					pv[np] = r->reg_values[k];
+					np++;
+				} else {
+					over = 1;
+				}
+			}
+		}
+		printf("  bus %d 0x%02X: %s%s\n", scan_results[i].bus, scan_results[i].i2c_addr,
+		       name ? name : "unmatched", name ? " [matched]" : "");
+		if (np) {
+			printf("   ");
+			for (k = 0; k < np; k++)
+				printf(" 0x%04X=0x%02X", pr[k], pv[k]);
+			printf("%s\n", over ? " ..." : "");
+		}
+	}
+}
+
 static void print_report(void)
 {
 	int grp[MAX_DETECTED_SENSORS];
 	int i, j, k, n;
-
-	printf("========== Sensor Detection Report ==========\n\n");
+	char mhz[24];
 
 	num_devices = 0;
 	for (i = 0; i < num_matches; i++) {
@@ -940,11 +1038,32 @@ static void print_report(void)
 			grp[i] = num_devices++;
 	}
 
-	if (num_matches > 0) {
-		printf("MATCHED SENSORS (%d):\n", num_devices);
-		printf("-------------------------------------------\n");
+	if (quiet) {
+		for (n = 0; n < num_devices; n++)
+			for (i = 0; i < num_matches; i++)
+				if (grp[i] == n) {
+					printf("%s\n", sensor_db[match_idx[i]].name);
+					break;
+				}
+		return;
+	}
+
+	if (num_devices == 0) {
+		printf("no sensors detected ");
+		print_scan_scope();
+		if (num_scan_results > 0)
+			printf(" (%d I2C device%s responded without matching; "
+			       "rerun with -v)",
+			       num_scan_results, num_scan_results == 1 ? "" : "s");
+		printf("\n");
+	} else {
+		const char *indent = num_devices > 1 ? "   " : "  ";
+
+		if (num_devices > 1)
+			printf("%d sensors found\n", num_devices);
 		for (n = 0; n < num_devices; n++) {
 			const struct sensor_def *s = NULL;
+			const struct i2c_scan_result *res = NULL;
 			int aliases = 0;
 
 			for (i = 0; i < num_matches; i++) {
@@ -952,93 +1071,40 @@ static void print_report(void)
 					continue;
 				if (!s) {
 					s = &sensor_db[match_idx[i]];
+					res = &match_res[i];
 					continue;
 				}
 				aliases++;
 			}
 
-			int bus = -1;
-
-			for (i = 0; i < num_matches; i++)
-				if (grp[i] == n) {
-					bus = match_res[i].bus;
-					break;
-				}
-			printf("%d. %s\n", n + 1, s->name);
+			if (num_devices > 1)
+				printf("%d. ", n + 1);
+			fmt_mhz(s->clk, mhz, sizeof(mhz));
+			printf("%s on bus %d at 0x%02X (MCLK %s)\n", s->name, res->bus, s->i2c_addr,
+			       mhz);
 
 			if (aliases) {
-				printf("   Also matches: ");
+				printf("%salso matches: ", indent);
 				for (i = 0, k = 0; i < num_matches; i++) {
 					if (grp[i] != n || &sensor_db[match_idx[i]] == s)
 						continue;
 					printf("%s%s", k++ ? ", " : "",
 					       sensor_db[match_idx[i]].name);
 				}
-				printf(" (identical ID registers)\n");
+				printf("\n");
 			}
 
-			printf("   I2C Bus: %d\n", bus);
-			printf("   I2C Address: 0x%02X\n", s->i2c_addr);
-			printf("   Clock: %s @ %u Hz\n", s->mclk_name, s->clk);
-
-			printf("   ID Registers: ");
-			for (j = 0; j < s->id_cnt; j++)
-				printf("0x%04X%s", s->id_addr[j], (j < s->id_cnt - 1) ? ", " : "");
+			printf("%sID:", indent);
+			for (j = 0; j < res->num_regs; j++)
+				printf(" 0x%04X=0x%02X", res->reg_addrs[j], res->reg_values[j]);
 			printf("\n");
-
-			printf("   ID Values:    ");
-			for (j = 0; j < s->id_cnt; j++)
-				printf("0x%02X%s", s->id_value[j], (j < s->id_cnt - 1) ? ", " : "");
-			printf("\n\n");
 		}
-		printf("Primary sensor: %s\n\n", sensor_db[primary_idx].name);
-	} else {
-		printf("MATCHED SENSORS: None\n\n");
 	}
 
 	if (verbose) {
-		if (num_scan_results > 0) {
-			printf("ALL I2C DEVICES DETECTED (%d):\n", num_scan_results);
-			printf("-------------------------------------------\n");
-			for (i = 0; i < num_scan_results; i++) {
-				struct i2c_scan_result *res = &scan_results[i];
-
-				if (res->sensor_name[0] != '\0')
-					printf("I2C Bus %d Address 0x%02X: %s [MATCHED]\n",
-					       res->bus, res->i2c_addr, res->sensor_name);
-				else
-					printf("I2C Bus %d Address 0x%02X: UNKNOWN DEVICE\n",
-					       res->bus, res->i2c_addr);
-
-				if (res->num_regs > 0) {
-					printf("  Register reads:\n");
-					for (j = 0; j < res->num_regs; j++)
-						printf("    0x%04X = 0x%02X\n", res->reg_addrs[j],
-						       res->reg_values[j]);
-				}
-				printf("\n");
-			}
-		} else {
-			printf("I2C DEVICES DETECTED: None responded\n\n");
-		}
-	} else if (num_devices == 0 && num_scan_results > 0) {
-		printf("%d I2C device(s) responded without matching; run with -v for "
-		       "register details\n\n",
-		       num_scan_results);
+		printf("\n");
+		print_devices_seen();
 	}
-
-	printf("CONFIGURATION:\n");
-	printf("-------------------------------------------\n");
-	printf("SoC: %s\n", cur_soc->name);
-	if (bus_all)
-		printf("I2C Adapter: all\n");
-	else
-		printf("I2C Adapter: %d\n", bus_nr);
-	printf("Reset GPIO: %d\n", reset_pin);
-	printf("Power Down GPIO: %d\n", pwdn_pin);
-	printf("\n");
-	printf("Detected sensors: %d\n", num_devices);
-	printf("=============================================\n");
 }
 
 /* ------------------------------------------------------------- commands */
@@ -1253,7 +1319,8 @@ static void usage(void)
 	fprintf(stderr,
 		"sinfo - userspace Ingenic image sensor detector\n"
 		"\n"
-		"usage: sinfo [-s soc] [-b bus|all] [-m mclk] [-r gpio] [-p gpio] [-v] [command]\n"
+		"usage: sinfo [-s soc] [-b bus|all] [-m mclk] [-r gpio] [-p gpio] [-v|-q] "
+		"[command]\n"
 		"\n"
 		"commands:\n"
 		"  probe                      scan for sensors, print report (default)\n"
@@ -1268,7 +1335,8 @@ static void usage(void)
 		"  -m <n>     MCLK output block for SoCs with several (t40: 0/1/2, default 1)\n"
 		"  -r <gpio>  reset GPIO (default: SoC default; -1 = none)\n"
 		"  -p <gpio>  power-down GPIO (default: -1)\n"
-		"  -v         verbose\n");
+		"  -v         verbose\n"
+		"  -q         quiet: print only detected sensor names\n");
 }
 
 int main(int argc, char **argv)
@@ -1277,7 +1345,7 @@ int main(int argc, char **argv)
 	const char *cmd = "probe";
 	int opt, ret = 0;
 
-	while ((opt = getopt(argc, argv, "s:b:m:r:p:vh")) != -1) {
+	while ((opt = getopt(argc, argv, "s:b:m:r:p:vqh")) != -1) {
 		switch (opt) {
 		case 's':
 			soc_name = optarg;
@@ -1302,6 +1370,9 @@ int main(int argc, char **argv)
 			break;
 		case 'v':
 			verbose = 1;
+			break;
+		case 'q':
+			quiet = 1;
 			break;
 		case 'h':
 			usage();
@@ -1358,6 +1429,9 @@ int main(int argc, char **argv)
 
 	if (hw_cpm_init())
 		return 2;
+
+	vlog("soc %s, i2c bus %s, reset gpio %d, pwdn gpio %d, mclk block %d\n", cur_soc->name,
+	     bus_all ? "all" : "(default)", reset_pin, pwdn_pin, mclk_sel);
 
 	if (!strcmp(cur_soc->name, "t21"))
 		t21_init_quirk();
