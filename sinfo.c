@@ -104,7 +104,7 @@ static const struct soc_desc soc_table[] = {
 	{ "t20",  "bull", PLLSTYLE_NEW, 0x7c, 30, 2, {PLL_A, PLL_M, PLL_V, PLL_V}, 2, 0, 18, -1, 0, 0, 1 },
 	{ "t30",  NULL,   PLLSTYLE_OLD, 0x7c, 30, 2, {PLL_A, PLL_M, PLL_V, PLL_E}, 2, 0, 18, -1, 0, 0, 0 },
 	{ "t21",  NULL,   PLLSTYLE_OLD, 0x7c, 30, 2, {PLL_A, PLL_M, PLL_V, PLL_E}, 2, 0, 18, -1, 0, 0, 0 },
-	{ "t10",  NULL,   PLLSTYLE_NEW, 0x7c, 31, 1, {PLL_A, PLL_M, PLL_NONE, PLL_NONE}, 1, 0, 18, -1, 0, 0, 0 },
+	{ "t10",  "mango", PLLSTYLE_NEW, 0x7c, 31, 1, {PLL_A, PLL_M, PLL_NONE, PLL_NONE}, 1, 0, 18, -1, 0, 0, 1 },
 	/* XBurst2: T40 sensor MCLK is CIM1 (kernel div_cim1), T41 is CIM0 */
 	{ "t40",  NULL,   PLLSTYLE_NEW, 0x94, 30, 2, {PLL_A, PLL_M, PLL_V, PLL_E}, 2, 1, 91, 2, 30, 1, 1 },
 	{ "t41",  NULL,   PLLSTYLE_T41, 0x90, 30, 2, {PLL_A, PLL_M, PLL_V, PLL_NONE}, 2, 0, 92, 0, 15, 1, 1 },
