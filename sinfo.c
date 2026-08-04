@@ -107,7 +107,7 @@ static const struct soc_desc soc_table[] = {
 	{ "t10",  NULL,   PLLSTYLE_NEW, 0x7c, 31, 1, {PLL_A, PLL_M, PLL_NONE, PLL_NONE}, 1, 0, 18, -1, 0, 0, 0 },
 	/* XBurst2: T40 sensor MCLK is CIM1 (kernel div_cim1), T41 is CIM0 */
 	{ "t40",  NULL,   PLLSTYLE_NEW, 0x94, 30, 2, {PLL_A, PLL_M, PLL_V, PLL_E}, 2, 1, 91, 2, 30, 1, 0 },
-	{ "t41",  NULL,   PLLSTYLE_T41, 0x90, 30, 2, {PLL_A, PLL_M, PLL_V, PLL_NONE}, 2, 0, 92, 0, 15, 1, 0 },
+	{ "t41",  NULL,   PLLSTYLE_T41, 0x90, 30, 2, {PLL_A, PLL_M, PLL_V, PLL_NONE}, 2, 0, 92, 0, 15, 1, 1 },
 };
 #define SOC_COUNT (sizeof(soc_table)/sizeof(soc_table[0]))
 
@@ -226,6 +226,8 @@ static uint64_t pll_rate(int pll)
 	} else if (g_soc->pll_style == PLLSTYLE_T41) {
 		uint32_t od1, od0;
 
+		if (!(r & 1))	/* PLL not on */
+			return 0;
 		m = (r >> 20) & 0x1ff;
 		n = (r >> 14) & 0x3f;
 		od1 = (r >> 11) & 0x7;
@@ -835,20 +837,63 @@ static const struct soc_desc *soc_by_name(const char *name)
 	return NULL;
 }
 
+static void str_tolower(char *s)
+{
+	for (; *s; s++)
+		*s = tolower((unsigned char)*s);
+}
+
+/*
+ * Detection chain:
+ * 1. isvp_<codename> in uname -r (XBurst1 vendor kernels, e.g. isvp_swan)
+ * 2. /proc/cpuinfo: "system type" codename, or the machine name for
+ *    XBurst2 built-in DTs (T41 vendor DT is ingenic,marmot)
+ * 3. thingino's `soc -f` tool
+ */
 static const struct soc_desc *soc_autodetect(void)
 {
 	struct utsname u;
 	unsigned i;
-	char low[sizeof(u.release)];
-	char *p;
+	char buf[256];
+	FILE *f;
 
 	if (uname(&u) == 0) {
-		for (p = u.release; *p; p++)
-			low[p - u.release] = tolower((unsigned char)*p);
-		low[p - u.release] = '\0';
+		str_tolower(u.release);
 		for (i = 0; i < SOC_COUNT; i++)
-			if (soc_table[i].uname_tag && strstr(low, soc_table[i].uname_tag))
+			if (soc_table[i].uname_tag &&
+			    strstr(u.release, soc_table[i].uname_tag))
 				return &soc_table[i];
+	}
+
+	f = fopen("/proc/cpuinfo", "r");
+	if (f) {
+		while (fgets(buf, sizeof(buf), f)) {
+			if (strncmp(buf, "system type", 11) &&
+			    strncmp(buf, "machine", 7))
+				continue;
+			str_tolower(buf);
+			for (i = 0; i < SOC_COUNT; i++)
+				if (soc_table[i].uname_tag &&
+				    strstr(buf, soc_table[i].uname_tag)) {
+					fclose(f);
+					return &soc_table[i];
+				}
+			if (strstr(buf, "marmot")) {
+				fclose(f);
+				return soc_by_name("t41");
+			}
+		}
+		fclose(f);
+	}
+
+	f = popen("soc -f 2>/dev/null", "r");
+	if (f) {
+		if (fgets(buf, sizeof(buf), f)) {
+			buf[strcspn(buf, "\r\n")] = '\0';
+			pclose(f);
+			return soc_by_name(buf);
+		}
+		pclose(f);
 	}
 	return NULL;
 }

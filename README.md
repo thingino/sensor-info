@@ -56,7 +56,7 @@ the GPIO dance is skipped for those pins (same as the module's
 | t21 | CIMCDR 0x7c | APLL/MPLL/VPLL/EPLL @30 | old | untested |
 | t10 | CIMCDR 0x7c | APLL/MPLL @31 (1 bit) | new | untested |
 | t40 | CIM1CDR 0x94 | APLL/MPLL/VPLL/EPLL @30 | new | untested |
-| t41 | CIM0CDR 0x90 | APLL/MPLL/VPLL @30 | t41 | untested |
+| t41 | CIM0CDR 0x90 | APLL/MPLL/VPLL @30 | t41 | HW-validated |
 | a1 | - | - | - | not implemented (module never supported it) |
 
 PLL formats: "new" `EXTAL*M/N/OD0/OD1`; "old" `EXTAL*2*(M+1)/(N+1)/2^OD`;
