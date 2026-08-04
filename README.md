@@ -46,25 +46,27 @@ the GPIO dance is skipped for those pins (same as the module's
 
 ## SoC support
 
-| SoC | CIM parent mux | PLL format | status |
-|-----|----------------|------------|--------|
-| t31 | APLL/MPLL/VPLL @30 | new | HW-validated |
-| t23 | APLL/MPLL @30 | new | untested |
-| c100 | APLL/MPLL/VPLL @30 | new | untested |
-| t20 | APLL/MPLL/VPLL @30 | new | untested |
-| t30 | APLL/MPLL/VPLL/EPLL @30 | old | untested |
-| t21 | APLL/MPLL/VPLL/EPLL @30 | old | untested |
-| t10 | APLL/MPLL @31 (1 bit) | new | untested |
-| t40/t41/a1 | XBurst2 CGU | - | not yet implemented |
+| SoC | MCLK reg | CIM parent mux | PLL format | status |
+|-----|----------|----------------|------------|--------|
+| t31 | CIMCDR 0x7c | APLL/MPLL/VPLL @30 | new | HW-validated |
+| t23 | CIMCDR 0x7c | APLL/MPLL @30 | new | untested |
+| c100 | CIMCDR 0x7c | APLL/MPLL/VPLL @30 | new | untested |
+| t20 | CIMCDR 0x7c | APLL/MPLL/VPLL @30 | new | untested |
+| t30 | CIMCDR 0x7c | APLL/MPLL/VPLL/EPLL @30 | old | untested |
+| t21 | CIMCDR 0x7c | APLL/MPLL/VPLL/EPLL @30 | old | untested |
+| t10 | CIMCDR 0x7c | APLL/MPLL @31 (1 bit) | new | untested |
+| t40 | CIM1CDR 0x94 | APLL/MPLL/VPLL/EPLL @30 | new | untested |
+| t41 | CIM0CDR 0x90 | APLL/MPLL/VPLL @30 | t41 | untested |
+| a1 | - | - | - | not implemented (module never supported it) |
 
-"new" PLL: `EXTAL*M/N/OD0/OD1`; "old": `EXTAL*2*(M+1)/(N+1)/2^OD`.
-EXTAL is assumed 24 MHz.
+PLL formats: "new" `EXTAL*M/N/OD0/OD1`; "old" `EXTAL*2*(M+1)/(N+1)/2^OD`;
+"t41" `EXTAL*2*(M+1)/((N+1)*2^OD0*(OD1+1))`. EXTAL is assumed 24 MHz.
 
 Notes:
-- MCLK pin muxing is not touched (same as the kernel module on XBurst1);
+- On XBurst1 the MCLK pin mux is not touched (same as the kernel module);
   on a normal boot the boot chain / sensor driver has already set it.
-- XBurst2 (t40/t41) needs its own CGU layout plus the CIM pin-mux pokes the
-  module does there; planned.
+- On XBurst2 the MCLK pin is muxed like the module does: T40 PC30 func1
+  (CIM1), T41 PA15 func1 (CIM0), via the GPIO set/clear registers.
 
 ## Build
 

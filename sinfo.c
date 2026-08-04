@@ -20,7 +20,7 @@
  *   i2c-r <addr> <len>        raw I2C read  (like echo i2c-r:... > proc)
  *   i2c-w <addr> <data> <len> raw I2C write (like echo i2c-w:... > proc)
  * Options:
- *   -s <soc>    SoC (t10/t20/t21/t23/t30/t31/c100); default: auto-detect
+ *   -s <soc>    SoC (t10/t20/t21/t23/t30/t31/c100/t40/t41); default: auto-detect
  *   -b <bus>    I2C bus number (default: per-SoC, 0)
  *   -r <gpio>   reset GPIO number (default: per-SoC, 18 = PA18; -1 = none)
  *   -p <gpio>   power-down GPIO number (default: -1 = none)
@@ -51,14 +51,14 @@
 /* ---------------------------------------------------------------- SoC data */
 
 /*
- * All XBurst1 SoCs: CPM at 0x10000000, CIMCDR at +0x7c with
- * CE bit 29, BUSY bit 28, STOP bit 27, 8-bit divider.
- * Parent mux field and PLL register format differ per SoC
- * (source: ingenic-u-boot-xburst1 per-SoC clk.c/cpm.h).
+ * All supported SoCs: CPM at 0x10000000. The CIM MCLK divider register
+ * (CIMCDR on XBurst1 at +0x7c, CIM0CDR/CIM1CDR on XBurst2 at +0x90/+0x94)
+ * shares one layout: parent mux in the top bits, CE bit 29, BUSY bit 28,
+ * STOP bit 27, 8-bit divider. Parent maps and PLL register formats differ
+ * per SoC (source: ingenic-u-boot-xburst1/-xburst2 per-SoC clk.c/cpm.h).
  */
 #define CPM_PHYS	0x10000000
 #define GPIO_PHYS	0x10010000
-#define CIMCDR_OFF	0x7c
 #define CE_BIT		29
 #define BUSY_BIT	28
 #define STOP_BIT	27
@@ -70,28 +70,44 @@ enum { PLL_NONE = 0, PLL_A, PLL_M, PLL_V, PLL_E };
 #define PLLSTYLE_NEW 0
 /* rate = EXTAL * 2*(m+1)/(n+1)/2^od m[28:20] n[19:14] od[13:11] */
 #define PLLSTYLE_OLD 1
+/* rate = EXTAL * 2*(m+1)/((n+1) * 2^od0 * (od1+1))
+ *                                   m[28:20] n[19:14] od1[13:11] od0[10:7] */
+#define PLLSTYLE_T41 2
 
 struct soc_desc {
 	const char *name;
 	const char *uname_tag;	/* "isvp_<tag>" in uname -r, NULL = unknown */
 	int pll_style;
+	uint32_t cimcdr_off;	/* CIM MCLK divider register, CPM offset */
 	uint8_t mux_shift;
 	uint8_t mux_width;
 	uint8_t parent[4];	/* PLL per mux field value */
 	uint8_t default_mux;	/* used when current parent is off/invalid */
 	int i2c_bus;
 	int reset_gpio;
+	int8_t mux_port;	/* MCLK pin function fixup: GPIO port, -1 = none */
+	int8_t mux_pin;		/* pin within port */
+	int8_t mux_func;	/* device function number */
 	int tested;		/* HW-validated */
 };
 
+/*
+ * XBurst2 MCLK pin fixups mirror the kernel module's jzgpio_set_func()
+ * calls: T40 cim1_gpio PC30 FUNC_1, T41 cim_gpio PA15 FUNC_1.
+ * XBurst1 entries deliberately have none (the module doesn't either;
+ * the boot chain / a previously loaded sensor driver sets the mux).
+ */
 static const struct soc_desc soc_table[] = {
-	{ "t31",  "swan", PLLSTYLE_NEW, 30, 2, {PLL_A, PLL_M, PLL_V, PLL_NONE}, 2, 0, 18, 1 },
-	{ "t23",  "pike", PLLSTYLE_NEW, 30, 2, {PLL_A, PLL_M, PLL_NONE, PLL_NONE}, 1, 0, 18, 0 },
-	{ "c100", NULL,   PLLSTYLE_NEW, 30, 2, {PLL_A, PLL_M, PLL_V, PLL_NONE}, 2, 0, 18, 0 },
-	{ "t20",  NULL,   PLLSTYLE_NEW, 30, 2, {PLL_A, PLL_M, PLL_V, PLL_V}, 2, 0, 18, 0 },
-	{ "t30",  NULL,   PLLSTYLE_OLD, 30, 2, {PLL_A, PLL_M, PLL_V, PLL_E}, 2, 0, 18, 0 },
-	{ "t21",  NULL,   PLLSTYLE_OLD, 30, 2, {PLL_A, PLL_M, PLL_V, PLL_E}, 2, 0, 18, 0 },
-	{ "t10",  NULL,   PLLSTYLE_NEW, 31, 1, {PLL_A, PLL_M, PLL_NONE, PLL_NONE}, 1, 0, 18, 0 },
+	{ "t31",  "swan", PLLSTYLE_NEW, 0x7c, 30, 2, {PLL_A, PLL_M, PLL_V, PLL_NONE}, 2, 0, 18, -1, 0, 0, 1 },
+	{ "t23",  "pike", PLLSTYLE_NEW, 0x7c, 30, 2, {PLL_A, PLL_M, PLL_NONE, PLL_NONE}, 1, 0, 18, -1, 0, 0, 0 },
+	{ "c100", NULL,   PLLSTYLE_NEW, 0x7c, 30, 2, {PLL_A, PLL_M, PLL_V, PLL_NONE}, 2, 0, 18, -1, 0, 0, 0 },
+	{ "t20",  NULL,   PLLSTYLE_NEW, 0x7c, 30, 2, {PLL_A, PLL_M, PLL_V, PLL_V}, 2, 0, 18, -1, 0, 0, 0 },
+	{ "t30",  NULL,   PLLSTYLE_OLD, 0x7c, 30, 2, {PLL_A, PLL_M, PLL_V, PLL_E}, 2, 0, 18, -1, 0, 0, 0 },
+	{ "t21",  NULL,   PLLSTYLE_OLD, 0x7c, 30, 2, {PLL_A, PLL_M, PLL_V, PLL_E}, 2, 0, 18, -1, 0, 0, 0 },
+	{ "t10",  NULL,   PLLSTYLE_NEW, 0x7c, 31, 1, {PLL_A, PLL_M, PLL_NONE, PLL_NONE}, 1, 0, 18, -1, 0, 0, 0 },
+	/* XBurst2: T40 sensor MCLK is CIM1 (kernel div_cim1), T41 is CIM0 */
+	{ "t40",  NULL,   PLLSTYLE_NEW, 0x94, 30, 2, {PLL_A, PLL_M, PLL_V, PLL_E}, 2, 1, 91, 2, 30, 1, 0 },
+	{ "t41",  NULL,   PLLSTYLE_T41, 0x90, 30, 2, {PLL_A, PLL_M, PLL_V, PLL_NONE}, 2, 0, 92, 0, 15, 1, 0 },
 };
 #define SOC_COUNT (sizeof(soc_table)/sizeof(soc_table[0]))
 
@@ -174,7 +190,7 @@ static int cim_wait_not_busy(void)
 	int i;
 
 	for (i = 0; i < 10000; i++) {
-		if (!(cpm_rd(CIMCDR_OFF) & (1u << BUSY_BIT)))
+		if (!(cpm_rd(g_soc->cimcdr_off) & (1u << BUSY_BIT)))
 			return 0;
 		usleep(10);
 	}
@@ -207,6 +223,14 @@ static uint64_t pll_rate(int pll)
 		if (!n || !od0 || !od1)
 			return 0;
 		return EXTAL_HZ * m / n / od0 / od1;
+	} else if (g_soc->pll_style == PLLSTYLE_T41) {
+		uint32_t od1, od0;
+
+		m = (r >> 20) & 0x1ff;
+		n = (r >> 14) & 0x3f;
+		od1 = (r >> 11) & 0x7;
+		od0 = (r >> 7) & 0xf;
+		return EXTAL_HZ * 2 * (m + 1) / ((n + 1) * (1u << od0) * (od1 + 1));
 	} else {
 		uint32_t od;
 
@@ -228,7 +252,7 @@ static int mclk_enable(uint32_t hz)
 	uint32_t v, muxmask, mux, div, nv;
 	uint64_t prate;
 
-	v = cpm_rd(CIMCDR_OFF);
+	v = cpm_rd(g_soc->cimcdr_off);
 	muxmask = (1u << g_soc->mux_width) - 1;
 	mux = (v >> g_soc->mux_shift) & muxmask;
 	prate = pll_rate(g_soc->parent[mux]);
@@ -252,14 +276,14 @@ static int mclk_enable(uint32_t hz)
 		return -1;
 	nv = v & ~(muxmask << g_soc->mux_shift) & ~DIV_MASK & ~(1u << STOP_BIT);
 	nv |= (mux << g_soc->mux_shift) | (div - 1) | (1u << CE_BIT);
-	cpm_wr(CIMCDR_OFF, nv);
+	cpm_wr(g_soc->cimcdr_off, nv);
 	if (cim_wait_not_busy())
 		return -1;
-	cpm_wr(CIMCDR_OFF, nv & ~(1u << CE_BIT));
+	cpm_wr(g_soc->cimcdr_off, nv & ~(1u << CE_BIT));
 
 	vlog("MCLK: parent %llu Hz / %u = %llu Hz (CIMCDR 0x%08x)\n",
 	     (unsigned long long)prate, div,
-	     (unsigned long long)(prate / div), cpm_rd(CIMCDR_OFF));
+	     (unsigned long long)(prate / div), cpm_rd(g_soc->cimcdr_off));
 	return 0;
 }
 
@@ -269,10 +293,10 @@ static void mclk_disable(void)
 
 	if (cim_wait_not_busy())
 		return;
-	v = cpm_rd(CIMCDR_OFF) | (1u << CE_BIT) | (1u << STOP_BIT);
-	cpm_wr(CIMCDR_OFF, v);
+	v = cpm_rd(g_soc->cimcdr_off) | (1u << CE_BIT) | (1u << STOP_BIT);
+	cpm_wr(g_soc->cimcdr_off, v);
 	cim_wait_not_busy();
-	cpm_wr(CIMCDR_OFF, v & ~(1u << CE_BIT));
+	cpm_wr(g_soc->cimcdr_off, v & ~(1u << CE_BIT));
 }
 
 /*
@@ -285,6 +309,34 @@ static void t21_init_quirk(void)
 
 	if (gpio)
 		gpio[0x104 / 4] = 0x1;
+}
+
+/*
+ * XBurst2 MCLK pin function select. Ports sit 0x1000 apart and expose
+ * set/clear registers for INT/MSK/PAT1/PAT0, so the function bits can be
+ * programmed without read-modify-write (same scheme as the kernel's
+ * jzgpio_set_func() and u-boot's gpio_set_func()). Pull config is left
+ * untouched.
+ */
+static void xb2_mclk_pin_mux(void)
+{
+	volatile uint32_t *port;
+	uint32_t pins;
+
+	if (g_soc->mux_port < 0)
+		return;
+	port = map_phys(GPIO_PHYS + (uint32_t)g_soc->mux_port * 0x1000, 0x1000);
+	if (!port) {
+		elog("cannot map GPIO port %c\n", 'A' + g_soc->mux_port);
+		return;
+	}
+	pins = 1u << g_soc->mux_pin;
+	port[(g_soc->mux_func & 0x8 ? 0x14 : 0x18) / 4] = pins;	/* INT  S/C */
+	port[(g_soc->mux_func & 0x4 ? 0x24 : 0x28) / 4] = pins;	/* MSK  S/C */
+	port[(g_soc->mux_func & 0x2 ? 0x34 : 0x38) / 4] = pins;	/* PAT1 S/C */
+	port[(g_soc->mux_func & 0x1 ? 0x44 : 0x48) / 4] = pins;	/* PAT0 S/C */
+	vlog("MCLK pin mux: P%c%d -> function %d\n",
+	     'A' + g_soc->mux_port, g_soc->mux_pin, g_soc->mux_func);
 }
 
 /* ------------------------------------------------------------ GPIO sysfs */
@@ -818,7 +870,7 @@ static void usage(void)
 "  i2c-w <addr> <data> <len>  raw I2C write\n"
 "\n"
 "options:\n"
-"  -s <soc>   t10 t20 t21 t23 t30 t31 c100 (default: auto from uname)\n"
+"  -s <soc>   t10 t20 t21 t23 t30 t31 c100 t40 t41 (default: auto from uname)\n"
 "  -b <bus>   I2C bus number (default: SoC default)\n"
 "  -r <gpio>  reset GPIO (default: SoC default; -1 = none)\n"
 "  -p <gpio>  power-down GPIO (default: -1)\n"
@@ -880,6 +932,7 @@ int main(int argc, char **argv)
 
 	if (!strcmp(g_soc->name, "t21"))
 		t21_init_quirk();
+	xb2_mclk_pin_mux();
 
 	if (!strcmp(cmd, "probe") || !strcmp(cmd, "1")) {
 		if (do_probe() < 0)
