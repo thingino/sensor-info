@@ -649,6 +649,24 @@ static void sensor_hw_release(void)
 }
 
 /*
+ * Progress on stderr: a live counter on a terminal, one line per bus
+ * otherwise, nothing in verbose mode (the per-entry log already shows
+ * activity). stdout carries only the report.
+ */
+static void probe_progress(int bus, unsigned int done, unsigned int total)
+{
+	if (verbose)
+		return;
+	if (isatty(2)) {
+		fprintf(stderr, "\rProbing bus %d... %u/%u", bus, done, total);
+		if (done == total)
+			fprintf(stderr, "\n");
+	} else if (done == 0) {
+		fprintf(stderr, "sinfo: probing %u sensor entries on bus %d...\n", total, bus);
+	}
+}
+
+/*
  * Probe every database entry. Faithful port of process_one_adapter():
  * per-sensor MCLK + reset dance, ID register compare with the sc2336p/
  * sc2337p/sc3336p unlock writes, the sc2336p-vs-sc2337p disambiguation
@@ -668,6 +686,7 @@ static int do_probe(int bus)
 		uint8_t idcnt = s->id_cnt;
 		int ret;
 
+		probe_progress(bus, i, SENSOR_COUNT);
 		if (!sensor_matches_soc(s))
 			continue;
 
@@ -756,6 +775,7 @@ static int do_probe(int bus)
 		if (scan_res.responded && num_scan_results < MAX_I2C_SCAN_RESULTS)
 			scan_results[num_scan_results++] = scan_res;
 	}
+	probe_progress(bus, SENSOR_COUNT, SENSOR_COUNT);
 
 	return 0;
 }

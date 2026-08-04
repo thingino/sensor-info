@@ -418,6 +418,55 @@ static void test_probe_multibus(void)
 
 /* ------------------------------------------------------------- GPIO / misc */
 
+/* capture stderr around probe_all(); count occurrences of needle */
+static int probe_stderr_count(const char *needle)
+{
+	char buf[16384] = {0};
+	const char *p;
+	int saved = dup(2);
+	FILE *tmp = tmpfile();
+	int n = 0;
+
+	fflush(stderr);
+	dup2(fileno(tmp), 2);
+	probe_all();
+	fflush(stderr);
+	dup2(saved, 2);
+	close(saved);
+	rewind(tmp);
+	fread(buf, 1, sizeof(buf) - 1, tmp);
+	fclose(tmp);
+	for (p = buf; (p = strstr(p, needle)); p += strlen(needle))
+		n++;
+	return n;
+}
+
+static void test_probe_progress(void)
+{
+	struct mock_chip *c;
+
+	/* non-tty stderr: exactly one progress line per bus */
+	setup_probe("t31");
+	c = mock_chip_add(0, 0x29);
+	mock_chip_reg(c, 0x03f0, 0x46);
+	mock_chip_reg(c, 0x03f1, 0x53);
+	verbose = 0;
+	CHECK_EQ(probe_stderr_count("probing"), 1);
+
+	setup_probe("t31");
+	bus_all = 1;
+	mock_nbuses = 2;
+	mock_buses[0] = 0;
+	mock_buses[1] = 1;
+	CHECK_EQ(probe_stderr_count("probing"), 2);
+
+	/* verbose mode has its own per-entry stream, no progress lines */
+	setup_probe("t31");
+	verbose = 1;
+	CHECK_EQ(probe_stderr_count("sinfo: probing 290 sensor"), 0);
+	verbose = 0;
+}
+
 static void test_report_scan_dump_verbose_only(void)
 {
 	struct mock_chip *c;
@@ -558,6 +607,7 @@ int main(void)
 	test_probe_ov2735b_quirk();
 	test_probe_sc2336p_disambiguation();
 	test_probe_multibus();
+	test_probe_progress();
 	test_report_scan_dump_verbose_only();
 	test_gpio_claim_failure_warns_once();
 	test_gpio_export_ownership();
