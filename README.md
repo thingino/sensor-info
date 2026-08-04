@@ -51,7 +51,7 @@ the GPIO dance is skipped for those pins (same as the module's
 | t31 | CIMCDR 0x7c | APLL/MPLL/VPLL @30 | new | HW-validated |
 | t23 | CIMCDR 0x7c | APLL/MPLL @30 | new | HW-validated |
 | c100 | CIMCDR 0x7c | APLL/MPLL/VPLL @30 | new | untested |
-| t20 | CIMCDR 0x7c | APLL/MPLL/VPLL @30 | new | untested |
+| t20 | CIMCDR 0x7c | APLL/MPLL/VPLL @30 | new | HW-validated |
 | t30 | CIMCDR 0x7c | APLL/MPLL/VPLL/EPLL @30 | old | untested |
 | t21 | CIMCDR 0x7c | APLL/MPLL/VPLL/EPLL @30 | old | untested |
 | t10 | CIMCDR 0x7c | APLL/MPLL @31 (1 bit) | new | untested |

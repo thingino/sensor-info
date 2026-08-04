@@ -101,7 +101,7 @@ static const struct soc_desc soc_table[] = {
 	{ "t31",  "swan", PLLSTYLE_NEW, 0x7c, 30, 2, {PLL_A, PLL_M, PLL_V, PLL_NONE}, 2, 0, 18, -1, 0, 0, 1 },
 	{ "t23",  "pike", PLLSTYLE_NEW, 0x7c, 30, 2, {PLL_A, PLL_M, PLL_NONE, PLL_NONE}, 1, 0, 18, -1, 0, 0, 1 },
 	{ "c100", NULL,   PLLSTYLE_NEW, 0x7c, 30, 2, {PLL_A, PLL_M, PLL_V, PLL_NONE}, 2, 0, 18, -1, 0, 0, 0 },
-	{ "t20",  NULL,   PLLSTYLE_NEW, 0x7c, 30, 2, {PLL_A, PLL_M, PLL_V, PLL_V}, 2, 0, 18, -1, 0, 0, 0 },
+	{ "t20",  "bull", PLLSTYLE_NEW, 0x7c, 30, 2, {PLL_A, PLL_M, PLL_V, PLL_V}, 2, 0, 18, -1, 0, 0, 1 },
 	{ "t30",  NULL,   PLLSTYLE_OLD, 0x7c, 30, 2, {PLL_A, PLL_M, PLL_V, PLL_E}, 2, 0, 18, -1, 0, 0, 0 },
 	{ "t21",  NULL,   PLLSTYLE_OLD, 0x7c, 30, 2, {PLL_A, PLL_M, PLL_V, PLL_E}, 2, 0, 18, -1, 0, 0, 0 },
 	{ "t10",  NULL,   PLLSTYLE_NEW, 0x7c, 31, 1, {PLL_A, PLL_M, PLL_NONE, PLL_NONE}, 1, 0, 18, -1, 0, 0, 0 },
@@ -267,9 +267,20 @@ static int mclk_enable(uint32_t hz)
 	mux = (v >> g_soc->mux_shift) & muxmask;
 	prate = pll_rate(g_soc->parent[mux]);
 	if (!prate) {
-		/* unprogrammed/parked CDR: fall back to the SoC's default parent */
+		/*
+		 * Unprogrammed/parked CDR, or its parent PLL is off (seen on
+		 * T20: u-boot's nominal CIM parent is VPLL but VPLL is not
+		 * running). Try the SoC default, then any parent whose PLL
+		 * is actually alive.
+		 */
+		uint32_t m;
+
 		mux = g_soc->default_mux;
 		prate = pll_rate(g_soc->parent[mux]);
+		for (m = 0; !prate && m <= muxmask; m++) {
+			mux = m;
+			prate = pll_rate(g_soc->parent[mux]);
+		}
 		if (!prate) {
 			elog("no usable CIM parent clock\n");
 			return -1;
