@@ -1,7 +1,7 @@
 /*
  * sensors.h - Ingenic sensor identification database
  *
- * Generated from ingenic-sdk sinfo/sensor_info.c g_sinfo[] table.
+ * Generated from ingenic-sdk sinfo/sensor_info.c sensor_db[] table.
  * Keep entries in the same order as the kernel module: scan order
  * determines the "primary" sensor when multiple entries match.
  */
@@ -28,7 +28,7 @@ struct sensor_def {
 	uint8_t soc;		/* S_ANY / S_T41_ONLY / S_NOT_T41 */
 };
 
-static struct sensor_def g_sinfo[] =
+static struct sensor_def sensor_db[] =
 {
 	{"ar0130", 0x10,  "cgu_cim", 24000000, {0x2402}, 2, {0x3000}, 2, 1, S_ANY},
 	{"ar0237", 0x10,  "cgu_cim", 27000000, {0x0256}, 2, {0x3000}, 2, 1, S_ANY},
@@ -325,6 +325,6 @@ static struct sensor_def g_sinfo[] =
 	{"gc4653", 0x29,  "cgu_cim", 24000000, {0x46, 0x53}, 1, {0x03f0, 0x03f1}, 2, 2, S_NOT_T41},
 };
 
-#define SENSOR_COUNT (sizeof(g_sinfo)/sizeof(g_sinfo[0]))
+#define SENSOR_COUNT (sizeof(sensor_db)/sizeof(sensor_db[0]))
 
 #endif /* SINFO_SENSORS_H */
