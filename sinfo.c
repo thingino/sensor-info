@@ -895,29 +895,35 @@ static void print_report(void)
 		printf("MATCHED SENSORS: None\n\n");
 	}
 
-	if (num_scan_results > 0) {
-		printf("ALL I2C DEVICES DETECTED (%d):\n", num_scan_results);
-		printf("-------------------------------------------\n");
-		for (i = 0; i < num_scan_results; i++) {
-			struct i2c_scan_result *res = &scan_results[i];
+	if (verbose) {
+		if (num_scan_results > 0) {
+			printf("ALL I2C DEVICES DETECTED (%d):\n", num_scan_results);
+			printf("-------------------------------------------\n");
+			for (i = 0; i < num_scan_results; i++) {
+				struct i2c_scan_result *res = &scan_results[i];
 
-			if (res->sensor_name[0] != '\0')
-				printf("I2C Bus %d Address 0x%02X: %s [MATCHED]\n", res->bus,
-				       res->i2c_addr, res->sensor_name);
-			else
-				printf("I2C Bus %d Address 0x%02X: UNKNOWN DEVICE\n", res->bus,
-				       res->i2c_addr);
+				if (res->sensor_name[0] != '\0')
+					printf("I2C Bus %d Address 0x%02X: %s [MATCHED]\n",
+					       res->bus, res->i2c_addr, res->sensor_name);
+				else
+					printf("I2C Bus %d Address 0x%02X: UNKNOWN DEVICE\n",
+					       res->bus, res->i2c_addr);
 
-			if (res->num_regs > 0) {
-				printf("  Register reads:\n");
-				for (j = 0; j < res->num_regs; j++)
-					printf("    0x%04X = 0x%02X\n", res->reg_addrs[j],
-					       res->reg_values[j]);
+				if (res->num_regs > 0) {
+					printf("  Register reads:\n");
+					for (j = 0; j < res->num_regs; j++)
+						printf("    0x%04X = 0x%02X\n", res->reg_addrs[j],
+						       res->reg_values[j]);
+				}
+				printf("\n");
 			}
-			printf("\n");
+		} else {
+			printf("I2C DEVICES DETECTED: None responded\n\n");
 		}
-	} else {
-		printf("I2C DEVICES DETECTED: None responded\n\n");
+	} else if (num_devices == 0 && num_scan_results > 0) {
+		printf("%d I2C device(s) responded without matching; run with -v for "
+		       "register details\n\n",
+		       num_scan_results);
 	}
 
 	printf("CONFIGURATION:\n");

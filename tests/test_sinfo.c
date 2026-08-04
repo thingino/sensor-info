@@ -52,6 +52,25 @@ static void use_soc(const char *name)
 	pwdn_pin = -1;
 }
 
+/* run print_report capturing stdout, return 1 if needle appears */
+static int report_contains(const char *needle)
+{
+	char buf[16384] = {0};
+	int saved = dup(1);
+	FILE *tmp = tmpfile();
+
+	fflush(stdout);
+	dup2(fileno(tmp), 1);
+	print_report();
+	fflush(stdout);
+	dup2(saved, 1);
+	close(saved);
+	rewind(tmp);
+	fread(buf, 1, sizeof(buf) - 1, tmp);
+	fclose(tmp);
+	return strstr(buf, needle) != NULL;
+}
+
 /* run print_report with stdout thrown away (it computes num_devices) */
 static void silent_report(void)
 {
@@ -399,6 +418,35 @@ static void test_probe_multibus(void)
 
 /* ------------------------------------------------------------- GPIO / misc */
 
+static void test_report_scan_dump_verbose_only(void)
+{
+	struct mock_chip *c;
+
+	/* matched chip: raw scan dump only with -v */
+	setup_probe("t31");
+	c = mock_chip_add(0, 0x29);
+	mock_chip_reg(c, 0x03f0, 0x46);
+	mock_chip_reg(c, 0x03f1, 0x53);
+	CHECK_EQ(probe_all(), 0);
+	verbose = 0;
+	CHECK(!report_contains("ALL I2C DEVICES"));
+	CHECK(!report_contains("run with -v"));
+	verbose = 1;
+	CHECK(report_contains("ALL I2C DEVICES"));
+
+	/* responder that matches nothing: default report points at -v */
+	setup_probe("t31");
+	c = mock_chip_add(0, 0x29);
+	mock_chip_reg(c, 0x03f0, 0x99);
+	CHECK_EQ(probe_all(), 0);
+	verbose = 0;
+	CHECK(!report_contains("ALL I2C DEVICES"));
+	CHECK(report_contains("run with -v"));
+	verbose = 1;
+	CHECK(report_contains("UNKNOWN DEVICE"));
+	verbose = 0;
+}
+
 static void test_gpio_claim_failure_warns_once(void)
 {
 	struct mock_chip *c;
@@ -510,6 +558,7 @@ int main(void)
 	test_probe_ov2735b_quirk();
 	test_probe_sc2336p_disambiguation();
 	test_probe_multibus();
+	test_report_scan_dump_verbose_only();
 	test_gpio_claim_failure_warns_once();
 	test_gpio_export_ownership();
 	test_same_device_bus_aware();

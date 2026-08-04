@@ -121,9 +121,9 @@ a code hook in addition to the table row.
 
 ### Identifying an unknown sensor
 
-If a chip responds but nothing matches, the `ALL I2C DEVICES
-DETECTED` section of the report shows every register that answered
-and the values read. To build the new csv line from that you need:
+If a chip responds but nothing matches, run the probe with `-v`:
+the `ALL I2C DEVICES DETECTED` section shows every register that
+answered and the values read. To build the new csv line from that you need:
 
 1. the sensor model name (board silkscreen, vendor firmware, or the
    value pattern - most vendors encode the model in the ID, e.g.
