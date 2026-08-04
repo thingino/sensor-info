@@ -49,7 +49,7 @@ the GPIO dance is skipped for those pins (same as the module's
 | SoC | MCLK reg | CIM parent mux | PLL format | status |
 |-----|----------|----------------|------------|--------|
 | t31 | CIMCDR 0x7c | APLL/MPLL/VPLL @30 | new | HW-validated |
-| t23 | CIMCDR 0x7c | APLL/MPLL @30 | new | untested |
+| t23 | CIMCDR 0x7c | APLL/MPLL @30 | new | HW-validated |
 | c100 | CIMCDR 0x7c | APLL/MPLL/VPLL @30 | new | untested |
 | t20 | CIMCDR 0x7c | APLL/MPLL/VPLL @30 | new | untested |
 | t30 | CIMCDR 0x7c | APLL/MPLL/VPLL/EPLL @30 | old | untested |

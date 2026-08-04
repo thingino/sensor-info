@@ -99,7 +99,7 @@ struct soc_desc {
  */
 static const struct soc_desc soc_table[] = {
 	{ "t31",  "swan", PLLSTYLE_NEW, 0x7c, 30, 2, {PLL_A, PLL_M, PLL_V, PLL_NONE}, 2, 0, 18, -1, 0, 0, 1 },
-	{ "t23",  "pike", PLLSTYLE_NEW, 0x7c, 30, 2, {PLL_A, PLL_M, PLL_NONE, PLL_NONE}, 1, 0, 18, -1, 0, 0, 0 },
+	{ "t23",  "pike", PLLSTYLE_NEW, 0x7c, 30, 2, {PLL_A, PLL_M, PLL_NONE, PLL_NONE}, 1, 0, 18, -1, 0, 0, 1 },
 	{ "c100", NULL,   PLLSTYLE_NEW, 0x7c, 30, 2, {PLL_A, PLL_M, PLL_V, PLL_NONE}, 2, 0, 18, -1, 0, 0, 0 },
 	{ "t20",  NULL,   PLLSTYLE_NEW, 0x7c, 30, 2, {PLL_A, PLL_M, PLL_V, PLL_V}, 2, 0, 18, -1, 0, 0, 0 },
 	{ "t30",  NULL,   PLLSTYLE_OLD, 0x7c, 30, 2, {PLL_A, PLL_M, PLL_V, PLL_E}, 2, 0, 18, -1, 0, 0, 0 },
@@ -122,7 +122,13 @@ static int g_verbose;
 static int g_i2c_fd = -1;
 static volatile uint32_t *g_cpm;
 
-static int8_t g_sensor_id = -1;
+/*
+ * int, not int8_t: the table has ~290 entries, so an int8_t index
+ * overflows for any sensor past index 127 (the kernel module has this
+ * exact bug: its int8_t g_sensor_id corrupts the primary sensor and
+ * IOCTL_SINFO_GET for the whole SmartSens block).
+ */
+static int g_sensor_id = -1;
 static int g_sensor_ids[MAX_DETECTED_SENSORS];
 static int g_num_detected_sensors;
 
