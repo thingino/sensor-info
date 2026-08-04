@@ -85,7 +85,7 @@ struct soc_desc {
 };
 
 static const struct soc_desc soc_table[] = {
-	{ "t31",  "swan", PLLSTYLE_NEW, 30, 2, {PLL_A, PLL_M, PLL_V, PLL_NONE}, 2, 0, 18, 0 },
+	{ "t31",  "swan", PLLSTYLE_NEW, 30, 2, {PLL_A, PLL_M, PLL_V, PLL_NONE}, 2, 0, 18, 1 },
 	{ "t23",  "pike", PLLSTYLE_NEW, 30, 2, {PLL_A, PLL_M, PLL_NONE, PLL_NONE}, 1, 0, 18, 0 },
 	{ "c100", NULL,   PLLSTYLE_NEW, 30, 2, {PLL_A, PLL_M, PLL_V, PLL_NONE}, 2, 0, 18, 0 },
 	{ "t20",  NULL,   PLLSTYLE_NEW, 30, 2, {PLL_A, PLL_M, PLL_V, PLL_V}, 2, 0, 18, 0 },
