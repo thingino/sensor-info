@@ -32,16 +32,13 @@
 #include <string.h>
 #include <stdint.h>
 #include <unistd.h>
-#include <fcntl.h>
 #include <errno.h>
 #include <ctype.h>
-#include <sys/mman.h>
-#include <sys/ioctl.h>
 #include <sys/utsname.h>
 #include <linux/i2c.h>
-#include <linux/i2c-dev.h>
 
 #include "sensors.h"
+#include "sinfo_hw.h"
 
 #define MAX_DETECTED_SENSORS 4
 #define MAX_I2C_SCAN_RESULTS 128
@@ -239,9 +236,6 @@ static int reset_pin = -9999;
 static int pwdn_pin = -1;
 static int verbose;
 
-static int i2c_fd = -1;
-static volatile uint32_t *cpm_base;
-
 /*
  * int, not int8_t: the table has ~290 entries, so an int8_t index
  * overflows for any sensor past index 127 (the kernel module has this
@@ -272,57 +266,14 @@ static struct i2c_scan_result match_res[MAX_DETECTED_SENSORS];
 	} while (0)
 #define elog(...) fprintf(stderr, "sinfo: [Error] " __VA_ARGS__)
 
-static void msleep(unsigned ms)
-{
-	usleep(ms * 1000);
-}
-
 /* ------------------------------------------------------------- /dev/mem */
-
-static void *map_phys(uint32_t phys, size_t len)
-{
-	static int memfd = -1;
-	void *p;
-
-	if (memfd < 0) {
-		memfd = open("/dev/mem", O_RDWR | O_SYNC);
-		if (memfd < 0) {
-			elog("cannot open /dev/mem: %s\n", strerror(errno));
-			return NULL;
-		}
-	}
-	p = mmap(NULL, len, PROT_READ | PROT_WRITE, MAP_SHARED, memfd, phys);
-	if (p == MAP_FAILED) {
-		elog("mmap 0x%08x failed: %s\n", phys, strerror(errno));
-		return NULL;
-	}
-	return p;
-}
-
-static int cpm_init(void)
-{
-	if (cpm_base)
-		return 0;
-	cpm_base = map_phys(CPM_PHYS, 0x1000);
-	return cpm_base ? 0 : -1;
-}
-
-static uint32_t cpm_rd(uint32_t off)
-{
-	return cpm_base[off / 4];
-}
-
-static void cpm_wr(uint32_t off, uint32_t val)
-{
-	cpm_base[off / 4] = val;
-}
 
 static int cim_wait_not_busy(void)
 {
 	int i;
 
 	for (i = 0; i < 10000; i++) {
-		if (!(cpm_rd(cur_soc->cimcdr_off) & (1u << BUSY_BIT)))
+		if (!(hw_cpm_rd(cur_soc->cimcdr_off) & (1u << BUSY_BIT)))
 			return 0;
 		usleep(10);
 	}
@@ -350,7 +301,7 @@ static uint64_t pll_rate(int pll)
 	default:
 		return 0;
 	}
-	r = cpm_rd(off);
+	r = hw_cpm_rd(off);
 
 	if (cur_soc->pll_style == PLLSTYLE_NEW) {
 		uint32_t od1, od0;
@@ -397,7 +348,7 @@ static int mclk_enable(uint32_t hz)
 	uint32_t v, muxmask, mux, div, nv;
 	uint64_t prate;
 
-	v = cpm_rd(cur_soc->cimcdr_off);
+	v = hw_cpm_rd(cur_soc->cimcdr_off);
 	muxmask = (1u << cur_soc->mux_width) - 1;
 	mux = (v >> cur_soc->mux_shift) & muxmask;
 	prate = pll_rate(cur_soc->parent[mux]);
@@ -432,13 +383,13 @@ static int mclk_enable(uint32_t hz)
 		return -1;
 	nv = v & ~(muxmask << cur_soc->mux_shift) & ~DIV_MASK & ~(1u << STOP_BIT);
 	nv |= (mux << cur_soc->mux_shift) | (div - 1) | (1u << CE_BIT);
-	cpm_wr(cur_soc->cimcdr_off, nv);
+	hw_cpm_wr(cur_soc->cimcdr_off, nv);
 	if (cim_wait_not_busy())
 		return -1;
-	cpm_wr(cur_soc->cimcdr_off, nv & ~(1u << CE_BIT));
+	hw_cpm_wr(cur_soc->cimcdr_off, nv & ~(1u << CE_BIT));
 
 	vlog("MCLK: parent %llu Hz / %u = %llu Hz (CIMCDR 0x%08x)\n", (unsigned long long)prate,
-	     div, (unsigned long long)(prate / div), cpm_rd(cur_soc->cimcdr_off));
+	     div, (unsigned long long)(prate / div), hw_cpm_rd(cur_soc->cimcdr_off));
 	return 0;
 }
 
@@ -448,10 +399,10 @@ static void mclk_disable(void)
 
 	if (cim_wait_not_busy())
 		return;
-	v = cpm_rd(cur_soc->cimcdr_off) | (1u << CE_BIT) | (1u << STOP_BIT);
-	cpm_wr(cur_soc->cimcdr_off, v);
+	v = hw_cpm_rd(cur_soc->cimcdr_off) | (1u << CE_BIT) | (1u << STOP_BIT);
+	hw_cpm_wr(cur_soc->cimcdr_off, v);
 	cim_wait_not_busy();
-	cpm_wr(cur_soc->cimcdr_off, v & ~(1u << CE_BIT));
+	hw_cpm_wr(cur_soc->cimcdr_off, v & ~(1u << CE_BIT));
 }
 
 /*
@@ -460,7 +411,7 @@ static void mclk_disable(void)
  */
 static void t21_init_quirk(void)
 {
-	volatile uint32_t *gpio = map_phys(GPIO_PHYS, 0x1000);
+	volatile uint32_t *gpio = hw_map_phys(GPIO_PHYS, 0x1000);
 
 	if (gpio)
 		gpio[0x104 / 4] = 0x1;
@@ -480,7 +431,7 @@ static void xb2_mclk_pin_mux(void)
 
 	if (cur_soc->mux_port < 0)
 		return;
-	port = map_phys(GPIO_PHYS + (uint32_t)cur_soc->mux_port * 0x1000, 0x1000);
+	port = hw_map_phys(GPIO_PHYS + (uint32_t)cur_soc->mux_port * 0x1000, 0x1000);
 	if (!port) {
 		elog("cannot map GPIO port %c\n", 'A' + cur_soc->mux_port);
 		return;
@@ -496,31 +447,19 @@ static void xb2_mclk_pin_mux(void)
 
 /* ------------------------------------------------------------ GPIO sysfs */
 
-static int sysfs_write(const char *path, const char *val)
-{
-	int fd, ret;
-
-	fd = open(path, O_WRONLY);
-	if (fd < 0)
-		return -1;
-	ret = write(fd, val, strlen(val));
-	close(fd);
-	return ret < 0 ? -1 : 0;
-}
-
 /* Equivalent of gpio_request(): claim via sysfs export. */
 static int gpio_claim(int gpio)
 {
 	char buf[64], path[80];
 
 	snprintf(path, sizeof(path), "/sys/class/gpio/gpio%d/direction", gpio);
-	if (access(path, W_OK) == 0)
+	if (hw_path_writable(path))
 		return 0; /* already exported (e.g. by a previous run) */
 
 	snprintf(buf, sizeof(buf), "%d", gpio);
-	if (sysfs_write("/sys/class/gpio/export", buf) < 0)
+	if (hw_sysfs_write("/sys/class/gpio/export", buf) < 0)
 		return -1;
-	return access(path, W_OK) == 0 ? 0 : -1;
+	return hw_path_writable(path) ? 0 : -1;
 }
 
 static void gpio_release(int gpio)
@@ -528,7 +467,7 @@ static void gpio_release(int gpio)
 	char buf[64];
 
 	snprintf(buf, sizeof(buf), "%d", gpio);
-	sysfs_write("/sys/class/gpio/unexport", buf);
+	hw_sysfs_write("/sys/class/gpio/unexport", buf);
 }
 
 /* Equivalent of gpio_direction_output(): atomic level set via direction. */
@@ -537,33 +476,10 @@ static int gpio_out(int gpio, int level)
 	char path[80];
 
 	snprintf(path, sizeof(path), "/sys/class/gpio/gpio%d/direction", gpio);
-	return sysfs_write(path, level ? "high" : "low");
+	return hw_sysfs_write(path, level ? "high" : "low");
 }
 
 /* --------------------------------------------------------------- I2C */
-
-static int i2c_open(void)
-{
-	char path[32];
-
-	if (i2c_fd >= 0)
-		return 0;
-	snprintf(path, sizeof(path), "/dev/i2c-%d", bus_nr);
-	i2c_fd = open(path, O_RDWR);
-	if (i2c_fd < 0) {
-		elog("cannot open %s: %s%s\n", path, strerror(errno),
-		     errno == ENOENT ? " (kernel needs CONFIG_I2C_CHARDEV=y)" : "");
-		return -1;
-	}
-	return 0;
-}
-
-static int i2c_xfer(struct i2c_msg *msgs, int n)
-{
-	struct i2c_rdwr_ioctl_data d = {.msgs = msgs, .nmsgs = n};
-
-	return ioctl(i2c_fd, I2C_RDWR, &d) < 0 ? -1 : 0;
-}
 
 /*
  * Read one ID register. Register address width = id_addr_len bytes,
@@ -588,7 +504,7 @@ static int sensor_read(const struct sensor_def *s, uint32_t addr, uint32_t *valu
 	for (i = 0; i < wlen; i++)
 		buf[i] = (addr >> (8 * (wlen - 1 - i))) & 0xff;
 
-	ret = i2c_xfer(msg, 2);
+	ret = hw_i2c_xfer(msg, 2);
 
 	*value = 0;
 	for (i = 0; i < rlen; i++)
@@ -605,7 +521,7 @@ static int sensor_write(const struct sensor_def *s, uint16_t reg, uint8_t value)
 	uint8_t buf[3] = {(reg >> 8) & 0xff, reg & 0xff, value};
 	struct i2c_msg msg = {.addr = s->i2c_addr, .flags = 0, .len = 3, .buf = buf};
 
-	return i2c_xfer(&msg, 1);
+	return hw_i2c_xfer(&msg, 1);
 }
 
 /* ----------------------------------------------------------- probe logic */
@@ -630,19 +546,19 @@ static void sensor_hw_prepare(const struct sensor_def *s)
 	if (reset_pin != -1) {
 		if (gpio_claim(reset_pin) == 0) {
 			gpio_out(reset_pin, 1);
-			msleep(20);
+			hw_msleep(20);
 			gpio_out(reset_pin, 0);
 			if (!strcmp(s->name, "sp1409")) {
-				msleep(600);
+				hw_msleep(600);
 			} else if (!strcmp(s->name, "sc2336p") || !strcmp(s->name, "sc2337p") ||
 				   !strcmp(s->name, "sc3336p")) {
-				msleep(250);
+				hw_msleep(250);
 				gpio_out(reset_pin, 1);
-				msleep(20);
+				hw_msleep(20);
 			} else {
-				msleep(20);
+				hw_msleep(20);
 				gpio_out(reset_pin, 1);
-				msleep(20);
+				hw_msleep(20);
 			}
 		} else {
 			elog("GPIO request failed for reset GPIO %d\n", reset_pin);
@@ -651,12 +567,12 @@ static void sensor_hw_prepare(const struct sensor_def *s)
 	if (pwdn_pin != -1) {
 		if (gpio_claim(pwdn_pin) == 0) {
 			gpio_out(pwdn_pin, 1);
-			msleep(150);
+			hw_msleep(150);
 			gpio_out(pwdn_pin, 0);
 			if (!strcmp(s->name, "sp1409"))
-				msleep(600);
+				hw_msleep(600);
 			else
-				msleep(10);
+				hw_msleep(10);
 		} else {
 			elog("GPIO request failed for pwdn GPIO %d\n", pwdn_pin);
 		}
@@ -713,13 +629,13 @@ static int do_probe(void)
 				ret += sensor_write(s, 0x0100, 0x01);
 				if (ret != 0)
 					break;
-				msleep(5);
+				hw_msleep(5);
 			} else if (j == 0 && !strcmp(s->name, "sc3336p")) {
 				ret = sensor_write(s, 0x440d, 0x10);
 				ret += sensor_write(s, 0x4400, 0x11);
 				if (ret != 0)
 					break;
-				msleep(10);
+				hw_msleep(10);
 			}
 
 			ret = sensor_read(s, s->id_addr[j], &value);
@@ -963,11 +879,11 @@ static int do_open(const char *name)
 	if (reset_pin != -1) {
 		if (gpio_claim(reset_pin) == 0) {
 			gpio_out(reset_pin, 1);
-			msleep(20);
+			hw_msleep(20);
 			gpio_out(reset_pin, 0);
-			msleep(20);
+			hw_msleep(20);
 			gpio_out(reset_pin, 1);
-			msleep(20);
+			hw_msleep(20);
 		} else {
 			elog("GPIO request failed for reset GPIO %d\n", reset_pin);
 		}
@@ -975,9 +891,9 @@ static int do_open(const char *name)
 	if (pwdn_pin != -1) {
 		if (gpio_claim(pwdn_pin) == 0) {
 			gpio_out(pwdn_pin, 1);
-			msleep(150);
+			hw_msleep(150);
 			gpio_out(pwdn_pin, 0);
-			msleep(10);
+			hw_msleep(10);
 		} else {
 			elog("GPIO request failed for pwdn GPIO %d\n", pwdn_pin);
 		}
@@ -1016,7 +932,7 @@ static int do_raw_i2c(int is_write, uint32_t addr, uint32_t data, int len)
 		for (i = 0; i < len; i++)
 			buf[i] = (data >> (8 * (len - 1 - i))) & 0xff;
 
-	if (i2c_xfer(&msg, 1) != 0) {
+	if (hw_i2c_xfer(&msg, 1) != 0) {
 		elog("I2C transfer failed\n");
 		return -1;
 	}
@@ -1191,9 +1107,9 @@ int main(int argc, char **argv)
 		fprintf(stderr, "sinfo: [Warning] not running as root, "
 				"/dev/mem and GPIO access will likely fail\n");
 
-	if (cpm_init())
+	if (hw_cpm_init())
 		return 2;
-	if (i2c_open())
+	if (hw_i2c_open(bus_nr))
 		return 2;
 
 	if (!strcmp(cur_soc->name, "t21"))

@@ -1,12 +1,22 @@
+# -Os: on MIPS32 the small I-caches make larger code slower, not faster.
 CROSS_COMPILE ?=
 CC := $(CROSS_COMPILE)gcc
-CFLAGS ?= -O2 -Wall -Wextra -std=gnu99
+CFLAGS ?= -Os -Wall -Wextra -std=gnu99
 LDFLAGS ?= -static
 
-sinfo: sinfo.c sensors.h
-	$(CC) $(CFLAGS) -o $@ sinfo.c $(LDFLAGS)
+OBJS := sinfo.o sinfo_hw.o
+
+sinfo: $(OBJS)
+	$(CC) $(CFLAGS) -o $@ $(OBJS) $(LDFLAGS)
+
+sinfo.o: sinfo.c sinfo_hw.h sensors.h
+sinfo_hw.o: sinfo_hw.c sinfo_hw.h
+
+test:
+	$(MAKE) -C tests
 
 clean:
-	rm -f sinfo
+	rm -f sinfo $(OBJS)
+	$(MAKE) -C tests clean 2>/dev/null || true
 
-.PHONY: clean
+.PHONY: clean test
