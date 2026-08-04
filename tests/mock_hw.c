@@ -34,6 +34,7 @@ static int exported[1024];
 
 unsigned long mock_slept_ms;
 int mock_export_fail;
+int mock_i2c_xfers;
 
 void mock_reset(void)
 {
@@ -49,6 +50,7 @@ void mock_reset(void)
 	memset(exported, 0, sizeof(exported));
 	mock_slept_ms = 0;
 	mock_export_fail = 0;
+	mock_i2c_xfers = 0;
 }
 
 struct mock_chip *mock_chip_add(int bus, uint8_t addr)
@@ -160,6 +162,8 @@ int hw_i2c_xfer(struct i2c_msg *msgs, int n)
 	struct mock_chip *c;
 	uint32_t reg = 0, val = 0;
 	int i;
+
+	mock_i2c_xfers++;
 
 	if (mock_i2c_hook) {
 		int r = mock_i2c_hook(cur_bus, msgs, n);

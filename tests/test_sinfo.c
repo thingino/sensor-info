@@ -441,6 +441,52 @@ static int probe_stderr_count(const char *needle)
 	return n;
 }
 
+static void test_dead_probe_cache(void)
+{
+	unsigned i, j;
+	int expect = 0;
+
+	/* empty bus: one probe attempt per unique (addr, rate, class) combo;
+	 * unlock-write classes cost two transfers before the NACK stops them */
+	setup_probe("t31");
+	CHECK_EQ(probe_all(), 0);
+
+	for (i = 0; i < SENSOR_COUNT; i++) {
+		const struct sensor_def *a = &sensor_db[i];
+		int cls, first = 1;
+
+		cur_soc = soc_by_name("t31");
+		if (!sensor_matches_soc(a))
+			continue;
+		cls = quirk_class(a);
+		for (j = 0; j < i; j++) {
+			const struct sensor_def *b = &sensor_db[j];
+
+			if (sensor_matches_soc(b) && b->i2c_addr == a->i2c_addr &&
+			    b->clk == a->clk && quirk_class(b) == cls) {
+				first = 0;
+				break;
+			}
+		}
+		if (first)
+			expect += (cls == QUIRK_SC233XP || cls == QUIRK_SC3336P) ? 2 : 1;
+	}
+	CHECK_EQ(mock_i2c_xfers, expect);
+	CHECK(expect < 80); /* the collapse is real: was ~600 transfers */
+
+	/* a present chip is never veto'd by the cache */
+	setup_probe("t31");
+	struct mock_chip *c = mock_chip_add(0, 0x29);
+
+	mock_chip_reg(c, 0x03f0, 0x46);
+	mock_chip_reg(c, 0x03f1, 0x53);
+	CHECK_EQ(probe_all(), 0);
+	CHECK(!strcmp(primary_name(), "gc4653"));
+
+	/* MCLK ends gated even though it stays up between entries now */
+	CHECK_EQ((mock_cpm[0x7c / 4] >> 27) & 1, 1);
+}
+
 static void test_probe_progress(void)
 {
 	struct mock_chip *c;
@@ -607,6 +653,7 @@ int main(void)
 	test_probe_ov2735b_quirk();
 	test_probe_sc2336p_disambiguation();
 	test_probe_multibus();
+	test_dead_probe_cache();
 	test_probe_progress();
 	test_report_scan_dump_verbose_only();
 	test_gpio_claim_failure_warns_once();

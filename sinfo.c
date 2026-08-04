@@ -649,6 +649,66 @@ static void sensor_hw_release(void)
 }
 
 /*
+ * Reset-behavior classes: entries whose probe sequence differs enough
+ * that one entry's silence must not veto another's attempt.
+ */
+enum {
+	QUIRK_STD,
+	QUIRK_SP1409,  /* 600 ms reset hold */
+	QUIRK_SC233XP, /* unlock writes + long reset release */
+	QUIRK_SC3336P, /* unlock writes */
+};
+
+static int quirk_class(const struct sensor_def *s)
+{
+	if (!strcmp(s->name, "sp1409"))
+		return QUIRK_SP1409;
+	if (!strcmp(s->name, "sc2336p") || !strcmp(s->name, "sc2337p"))
+		return QUIRK_SC233XP;
+	if (!strcmp(s->name, "sc3336p"))
+		return QUIRK_SC3336P;
+	return QUIRK_STD;
+}
+
+/*
+ * Nothing answered for an entry: every other entry with the same bus,
+ * address, MCLK rate and reset behavior is provably dead too, so the
+ * per-transfer kernel I2C overhead is paid once per combination
+ * instead of once per table entry (~45 addresses cover ~290 entries).
+ */
+struct dead_probe {
+	uint32_t rate;
+	uint8_t bus;
+	uint8_t addr;
+	uint8_t cls;
+};
+#define MAX_DEAD_PROBES 1024
+static struct dead_probe dead_probes[MAX_DEAD_PROBES];
+static int num_dead_probes;
+
+static int probe_is_dead(int bus, const struct sensor_def *s)
+{
+	int cls = quirk_class(s), i;
+
+	for (i = 0; i < num_dead_probes; i++)
+		if (dead_probes[i].bus == bus && dead_probes[i].addr == s->i2c_addr &&
+		    dead_probes[i].rate == s->clk && dead_probes[i].cls == cls)
+			return 1;
+	return 0;
+}
+
+static void mark_dead(int bus, const struct sensor_def *s)
+{
+	if (num_dead_probes >= MAX_DEAD_PROBES)
+		return; /* cache full: keep probing, correctness first */
+	dead_probes[num_dead_probes].bus = bus;
+	dead_probes[num_dead_probes].addr = s->i2c_addr;
+	dead_probes[num_dead_probes].rate = s->clk;
+	dead_probes[num_dead_probes].cls = quirk_class(s);
+	num_dead_probes++;
+}
+
+/*
  * Progress on stderr: a live counter on a terminal, one line per bus
  * otherwise, nothing in verbose mode (the per-entry log already shows
  * activity). stdout carries only the report.
@@ -672,6 +732,8 @@ static void probe_progress(int bus, unsigned int done, unsigned int total)
  * sc2337p/sc3336p unlock writes, the sc2336p-vs-sc2337p disambiguation
  * via reg 0x801e, and the ov2735b alternate-ID quirk.
  */
+static uint32_t mclk_cur_rate;
+
 static int do_probe(int bus)
 {
 	unsigned i;
@@ -686,14 +748,24 @@ static int do_probe(int bus)
 		uint8_t idcnt = s->id_cnt;
 		int ret;
 
+		int any_ack = 0;
+
 		probe_progress(bus, i, SENSOR_COUNT);
 		if (!sensor_matches_soc(s))
 			continue;
+		if (probe_is_dead(bus, s)) {
+			vlog("skipping %s @ 0x%02x (address already silent)\n", s->name,
+			     s->i2c_addr);
+			continue;
+		}
 
 		vlog("probing %s @ 0x%02x (MCLK %u Hz)\n", s->name, s->i2c_addr, s->clk);
 
-		if (mclk_enable(s->clk) < 0)
-			return -1;
+		if (s->clk != mclk_cur_rate) {
+			if (mclk_enable(s->clk) < 0)
+				return -1;
+			mclk_cur_rate = s->clk;
+		}
 		sensor_hw_prepare(s);
 
 		memset(&scan_res, 0, sizeof(scan_res));
@@ -709,12 +781,14 @@ static int do_probe(int bus)
 				ret += sensor_write(s, 0x0100, 0x01);
 				if (ret != 0)
 					break;
+				any_ack = 1;
 				hw_msleep(5);
 			} else if (j == 0 && !strcmp(s->name, "sc3336p")) {
 				ret = sensor_write(s, 0x440d, 0x10);
 				ret += sensor_write(s, 0x4400, 0x11);
 				if (ret != 0)
 					break;
+				any_ack = 1;
 				hw_msleep(10);
 			}
 
@@ -729,6 +803,7 @@ static int do_probe(int bus)
 			if (ret != 0)
 				break;
 
+			any_ack = 1;
 			scan_res.responded = 1;
 
 			if ((!strcmp(s->name, "sc2336p") || !strcmp(s->name, "sc2337p")) &&
@@ -759,7 +834,8 @@ static int do_probe(int bus)
 		}
 
 		sensor_hw_release();
-		mclk_disable();
+		if (!any_ack)
+			mark_dead(bus, s);
 
 		if (j == idcnt) {
 			strncpy(scan_res.sensor_name, s->name, sizeof(scan_res.sensor_name) - 1);
@@ -795,6 +871,8 @@ static int probe_all(void)
 	primary_idx = -1;
 	reset_warned = 0;
 	pwdn_warned = 0;
+	num_dead_probes = 0;
+	mclk_cur_rate = 0;
 
 	xb2_mclk_pin_mux();
 
@@ -812,6 +890,9 @@ static int probe_all(void)
 	for (i = 0; i < n; i++)
 		if (do_probe(buses[i]) < 0)
 			return -1;
+
+	if (mclk_cur_rate)
+		mclk_disable();
 
 	if (num_matches > 0)
 		primary_idx = match_idx[0];
