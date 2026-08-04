@@ -19,25 +19,25 @@
 static int failures;
 static int checks;
 
-#define CHECK(cond)                                                                       \
-	do {                                                                              \
-		checks++;                                                                 \
-		if (!(cond)) {                                                            \
-			failures++;                                                       \
-			fprintf(stderr, "FAIL %s:%d: %s\n", __FILE__, __LINE__, #cond);   \
-		}                                                                         \
+#define CHECK(cond)                                                                                \
+	do {                                                                                       \
+		checks++;                                                                          \
+		if (!(cond)) {                                                                     \
+			failures++;                                                                \
+			fprintf(stderr, "FAIL %s:%d: %s\n", __FILE__, __LINE__, #cond);            \
+		}                                                                                  \
 	} while (0)
 
-#define CHECK_EQ(a, b)                                                                    \
-	do {                                                                              \
-		checks++;                                                                 \
-		unsigned long long _a = (unsigned long long)(a);                          \
-		unsigned long long _b = (unsigned long long)(b);                          \
-		if (_a != _b) {                                                           \
-			failures++;                                                       \
-			fprintf(stderr, "FAIL %s:%d: %s = %llu, want %llu (%s)\n",        \
-				__FILE__, __LINE__, #a, _a, _b, #b);                      \
-		}                                                                         \
+#define CHECK_EQ(a, b)                                                                             \
+	do {                                                                                       \
+		checks++;                                                                          \
+		unsigned long long _a = (unsigned long long)(a);                                   \
+		unsigned long long _b = (unsigned long long)(b);                                   \
+		if (_a != _b) {                                                                    \
+			failures++;                                                                \
+			fprintf(stderr, "FAIL %s:%d: %s = %llu, want %llu (%s)\n", __FILE__,       \
+				__LINE__, #a, _a, _b, #b);                                         \
+		}                                                                                  \
 	} while (0)
 
 static void use_soc(const char *name)
@@ -152,15 +152,15 @@ static void test_mclk_divider_and_handshake(void)
 
 	mock_reset();
 	use_soc("t31");
-	mock_cpm[0xe0 / 4] = 0x0640510D;	/* VPLL 1200 MHz */
-	mock_cpm[0x7c / 4] = 0x88000031;	/* gated, VPLL parent, div 50 */
+	mock_cpm[0xe0 / 4] = 0x0640510D; /* VPLL 1200 MHz */
+	mock_cpm[0x7c / 4] = 0x88000031; /* gated, VPLL parent, div 50 */
 
 	CHECK_EQ(mclk_enable(24000000), 0);
 	final = mock_cpm[0x7c / 4];
-	CHECK_EQ((final >> 30) & 3, 2);		/* parent preserved */
-	CHECK_EQ(final & 0xff, 49);		/* 1200/24 = 50 */
-	CHECK_EQ((final >> 27) & 1, 0);		/* running */
-	CHECK_EQ((final >> 29) & 1, 0);		/* CE dropped */
+	CHECK_EQ((final >> 30) & 3, 2); /* parent preserved */
+	CHECK_EQ(final & 0xff, 49);	/* 1200/24 = 50 */
+	CHECK_EQ((final >> 27) & 1, 0); /* running */
+	CHECK_EQ((final >> 29) & 1, 0); /* CE dropped */
 
 	for (i = 0; i < mock_cpm_nwrites; i++)
 		if (mock_cpm_writes[i].off == 0x7c) {
@@ -189,8 +189,8 @@ static void test_mclk_parent_fallback(void)
 	mock_cpm[0x7c / 4] = 0x80000000; /* mux = VPLL */
 
 	CHECK_EQ(mclk_enable(24000000), 0);
-	CHECK_EQ((mock_cpm[0x7c / 4] >> 30) & 3, 0);  /* fell back to APLL */
-	CHECK_EQ(mock_cpm[0x7c / 4] & 0xff, 35);      /* ceil(852/24) = 36 */
+	CHECK_EQ((mock_cpm[0x7c / 4] >> 30) & 3, 0); /* fell back to APLL */
+	CHECK_EQ(mock_cpm[0x7c / 4] & 0xff, 35);     /* ceil(852/24) = 36 */
 }
 
 /* -------------------------------------------------------------- probe logic */
@@ -399,6 +399,23 @@ static void test_probe_multibus(void)
 
 /* ------------------------------------------------------------- GPIO / misc */
 
+static void test_gpio_claim_failure_warns_once(void)
+{
+	struct mock_chip *c;
+
+	setup_probe("t31");
+	reset_pin = 18;
+	mock_export_fail = 1; /* a loaded sensor driver holds the pin */
+	c = mock_chip_add(0, 0x29);
+	mock_chip_reg(c, 0x03f0, 0x46);
+	mock_chip_reg(c, 0x03f1, 0x53);
+
+	CHECK_EQ(probe_all(), 0);
+	CHECK(!strcmp(primary_name(), "gc4653"));
+	CHECK_EQ(reset_warned, 1); /* once, not once per table entry */
+	CHECK_EQ(pwdn_warned, 0);  /* pwdn disabled, nothing to warn about */
+}
+
 static void test_gpio_export_ownership(void)
 {
 	int owned = -1;
@@ -473,8 +490,8 @@ static void test_table_invariants(void)
 			if (memcmp(s->id_addr, t->id_addr, sizeof(s->id_addr)) ||
 			    memcmp(s->id_value, t->id_value, sizeof(s->id_value)))
 				continue;
-			fprintf(stderr, "duplicate table entry: %s@0x%02x (rows %u, %u)\n",
-				s->name, s->i2c_addr, i, j);
+			fprintf(stderr, "duplicate table entry: %s@0x%02x (rows %u, %u)\n", s->name,
+				s->i2c_addr, i, j);
 			CHECK(0);
 		}
 	}
@@ -493,6 +510,7 @@ int main(void)
 	test_probe_ov2735b_quirk();
 	test_probe_sc2336p_disambiguation();
 	test_probe_multibus();
+	test_gpio_claim_failure_warns_once();
 	test_gpio_export_ownership();
 	test_same_device_bus_aware();
 	test_soc_lookup();

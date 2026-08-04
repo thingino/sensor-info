@@ -41,6 +41,7 @@ extern mock_i2c_hook_fn mock_i2c_hook;
 extern int mock_buses[];
 extern int mock_nbuses;
 extern unsigned long mock_slept_ms;
+extern int mock_export_fail;
 
 void mock_reset(void);
 struct mock_chip *mock_chip_add(int bus, uint8_t addr);

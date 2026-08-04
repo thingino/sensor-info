@@ -270,6 +270,7 @@ static int primary_idx = -1;
 static int match_idx[MAX_DETECTED_SENSORS];
 static int num_matches;
 static int reset_owned, pwdn_owned;
+static int reset_warned, pwdn_warned;
 
 struct i2c_scan_result {
 	uint8_t bus;
@@ -610,8 +611,13 @@ static void sensor_hw_prepare(const struct sensor_def *s)
 				gpio_out(reset_pin, 1);
 				hw_msleep(20);
 			}
-		} else {
-			elog("GPIO request failed for reset GPIO %d\n", reset_pin);
+		} else if (reset_warned == 0) {
+			reset_warned++;
+			fprintf(stderr,
+				"sinfo: [Warning] cannot claim reset GPIO %d (a sensor driver "
+				"probably holds it); probing without the reset dance, "
+				"use -r -1 to silence\n",
+				reset_pin);
 		}
 	}
 	if (pwdn_pin != -1) {
@@ -623,8 +629,13 @@ static void sensor_hw_prepare(const struct sensor_def *s)
 				hw_msleep(600);
 			else
 				hw_msleep(10);
-		} else {
-			elog("GPIO request failed for pwdn GPIO %d\n", pwdn_pin);
+		} else if (pwdn_warned == 0) {
+			pwdn_warned++;
+			fprintf(stderr,
+				"sinfo: [Warning] cannot claim pwdn GPIO %d (a sensor driver "
+				"probably holds it); probing without the pwdn dance, "
+				"use -p -1 to silence\n",
+				pwdn_pin);
 		}
 	}
 }
@@ -762,6 +773,8 @@ static int probe_all(void)
 	num_matches = 0;
 	num_scan_results = 0;
 	primary_idx = -1;
+	reset_warned = 0;
+	pwdn_warned = 0;
 
 	xb2_mclk_pin_mux();
 
@@ -907,33 +920,6 @@ static void print_report(void)
 		printf("I2C DEVICES DETECTED: None responded\n\n");
 	}
 
-	if (num_scan_results > num_matches) {
-		printf("SETUP HELP FOR UNKNOWN DEVICES:\n");
-		printf("-------------------------------------------\n");
-		printf("Found %d device(s) that responded but didn't match known sensors.\n\n",
-		       num_scan_results - num_matches);
-		for (i = 0; i < num_scan_results; i++) {
-			struct i2c_scan_result *res = &scan_results[i];
-
-			if (res->sensor_name[0] != '\0')
-				continue;
-			printf("Device at I2C bus %d address 0x%02X:\n", res->bus, res->i2c_addr);
-			printf("  To add this sensor to the database, you need:\n");
-			printf("  1. Sensor model name\n");
-			printf("  2. ID register addresses (tried: ");
-			for (j = 0; j < res->num_regs; j++)
-				printf("0x%04X%s", res->reg_addrs[j],
-				       (j < res->num_regs - 1) ? ", " : "");
-			printf(")\n");
-			printf("  3. Expected ID values (read: ");
-			for (j = 0; j < res->num_regs; j++)
-				printf("0x%02X%s", res->reg_values[j],
-				       (j < res->num_regs - 1) ? ", " : "");
-			printf(")\n");
-			printf("  4. Clock frequency (currently using default)\n\n");
-		}
-	}
-
 	printf("CONFIGURATION:\n");
 	printf("-------------------------------------------\n");
 	printf("SoC: %s\n", cur_soc->name);
@@ -987,8 +973,13 @@ static int do_open(const char *name)
 			hw_msleep(20);
 			gpio_out(reset_pin, 1);
 			hw_msleep(20);
-		} else {
-			elog("GPIO request failed for reset GPIO %d\n", reset_pin);
+		} else if (reset_warned == 0) {
+			reset_warned++;
+			fprintf(stderr,
+				"sinfo: [Warning] cannot claim reset GPIO %d (a sensor driver "
+				"probably holds it); probing without the reset dance, "
+				"use -r -1 to silence\n",
+				reset_pin);
 		}
 	}
 	if (pwdn_pin != -1) {

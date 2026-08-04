@@ -33,6 +33,7 @@ int mock_nsysfs;
 static int exported[1024];
 
 unsigned long mock_slept_ms;
+int mock_export_fail;
 
 void mock_reset(void)
 {
@@ -47,6 +48,7 @@ void mock_reset(void)
 	mock_nsysfs = 0;
 	memset(exported, 0, sizeof(exported));
 	mock_slept_ms = 0;
+	mock_export_fail = 0;
 }
 
 struct mock_chip *mock_chip_add(int bus, uint8_t addr)
@@ -195,10 +197,12 @@ int hw_sysfs_write(const char *path, const char *val)
 	int gpio;
 
 	if (mock_nsysfs < MOCK_MAX_SYSFS)
-		snprintf(mock_sysfs_log[mock_nsysfs++], sizeof(mock_sysfs_log[0]), "%s=%s",
-			 path, val);
+		snprintf(mock_sysfs_log[mock_nsysfs++], sizeof(mock_sysfs_log[0]), "%s=%s", path,
+			 val);
 
 	if (strstr(path, "/export") && !strstr(path, "unexport")) {
+		if (mock_export_fail)
+			return -1;
 		if (sscanf(val, "%d", &gpio) == 1)
 			mock_gpio_export(gpio);
 	} else if (strstr(path, "/unexport")) {
