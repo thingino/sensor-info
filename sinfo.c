@@ -1199,6 +1199,43 @@ static int do_raw_i2c(int is_write, uint32_t addr, uint32_t data, int len)
 	return 0;
 }
 
+/*
+ * Register-space dump for building sensor fingerprints: MCLK + reset
+ * like a probe, then every register in [first, last] as reg=val lines
+ * on stdout. Reads that NACK print nothing. Output is diff-friendly;
+ * dumps from known sensors are collected under docs/dumps/.
+ */
+static int do_dump(uint8_t addr, uint32_t first, uint32_t last, int rw, int vw, uint32_t hz)
+{
+	struct sensor_def probe = {
+		.name = "dump",
+		.i2c_addr = addr,
+		.id_addr_len = rw,
+		.id_value_len = vw,
+	};
+	uint32_t reg, value, got = 0;
+
+	if (hw_i2c_open(bus_nr) < 0)
+		return -1;
+	xb2_mclk_pin_mux();
+	if (mclk_enable(hz) < 0)
+		return -1;
+	sensor_hw_prepare(&probe);
+
+	for (reg = first; reg <= last; reg++) {
+		if (sensor_read(&probe, reg, &value) == 0) {
+			printf("0x%04X=0x%02X\n", reg, value);
+			got++;
+		}
+	}
+
+	sensor_hw_release();
+	mclk_disable();
+	fprintf(stderr, "sinfo: dumped %u of %u registers from 0x%02X\n", got, last - first + 1,
+		addr);
+	return got ? 0 : -1;
+}
+
 /* -------------------------------------------------------------- SoC pick */
 
 static const struct soc_desc *soc_by_name(const char *name)
@@ -1336,6 +1373,8 @@ static void usage(void)
 		"  release                    stop MCLK, free GPIOs\n"
 		"  i2c-r <addr> <len>         raw I2C read\n"
 		"  i2c-w <addr> <data> <len>  raw I2C write\n"
+		"  dump <addr> <first> <last> [reg_bytes] [val_bytes] [mclk_hz]\n"
+		"                             dump a register range (fingerprinting)\n"
 		"\n"
 		"options:\n"
 		"  -s <soc>   t10 t20 t21 t23 t30 t31 c100 t40 t41 (default: auto from chip id)\n"
@@ -1488,6 +1527,32 @@ int main(int argc, char **argv)
 		if (hw_i2c_open(bus_nr))
 			return 2;
 		ret = do_raw_i2c(1, addr, data, len) ? 2 : 0;
+	} else if (!strcmp(cmd, "dump")) {
+		uint32_t first, last, addr, hz = 24000000;
+		int rw = 2, vw = 1;
+
+		if (optind + 3 >= argc) {
+			elog("dump needs <addr> <first> <last>\n");
+			return 2;
+		}
+		if (parse_uint32(argv[optind + 1], &addr) || addr > 0x7f ||
+		    parse_uint32(argv[optind + 2], &first) ||
+		    parse_uint32(argv[optind + 3], &last) || last < first) {
+			elog("invalid dump arguments\n");
+			return 2;
+		}
+		if (optind + 4 < argc && parse_int(argv[optind + 4], &rw))
+			goto bad_dump;
+		if (optind + 5 < argc && parse_int(argv[optind + 5], &vw))
+			goto bad_dump;
+		if (optind + 6 < argc && parse_uint32(argv[optind + 6], &hz))
+			goto bad_dump;
+		if (rw < 1 || rw > 4 || vw < 1 || vw > 4 || !hz) {
+		bad_dump:
+			elog("invalid dump arguments\n");
+			return 2;
+		}
+		ret = do_dump(addr, first, last, rw, vw, hz) ? 2 : 0;
 	} else {
 		elog("unknown command '%s'\n", cmd);
 		usage();

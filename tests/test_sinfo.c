@@ -681,6 +681,42 @@ static void test_soc_chipid_detect(void)
 	CHECK(soc_from_chipid() == NULL);
 }
 
+static void test_dump(void)
+{
+	struct mock_chip *c;
+	char buf[16384] = {0};
+	int saved, rc;
+	FILE *tmp;
+
+	setup_probe("t31");
+	c = mock_chip_add(0, 0x1a);
+	mock_chip_reg(c, 0x3008, 0xa0);
+	mock_chip_reg(c, 0x301e, 0xb2);
+
+	saved = dup(1);
+	tmp = tmpfile();
+	fflush(stdout);
+	dup2(fileno(tmp), 1);
+	rc = do_dump(0x1a, 0x3000, 0x301f, 2, 1, 24000000);
+	fflush(stdout);
+	dup2(saved, 1);
+	close(saved);
+	rewind(tmp);
+	fread(buf, 1, sizeof(buf) - 1, tmp);
+	fclose(tmp);
+
+	CHECK_EQ(rc, 0);
+	CHECK(strstr(buf, "0x3008=0xA0") != NULL);
+	CHECK(strstr(buf, "0x301E=0xB2") != NULL);
+	CHECK(strstr(buf, "0x3000=0x00") != NULL); /* unmapped regs read zero */
+	/* MCLK gated again afterwards */
+	CHECK_EQ((mock_cpm[0x7c / 4] >> 27) & 1, 1);
+
+	/* nothing at the address: no output, failure */
+	setup_probe("t31");
+	CHECK_EQ(do_dump(0x1a, 0x3000, 0x3001, 2, 1, 24000000), -1);
+}
+
 static void test_soc_lookup(void)
 {
 	CHECK(soc_by_name("t31") != NULL);
@@ -738,6 +774,7 @@ int main(void)
 	test_gpio_claim_failure_warns_once();
 	test_gpio_export_ownership();
 	test_same_device_bus_aware();
+	test_dump();
 	test_soc_chipid_detect();
 	test_soc_lookup();
 	test_table_invariants();
