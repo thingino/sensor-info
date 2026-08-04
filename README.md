@@ -13,6 +13,18 @@ version, this is one static MIPS binary that runs on any kernel with:
 - `CONFIG_GPIO_SYSFS` (`/sys/class/gpio`)
 - `CONFIG_DEVMEM` (`/dev/mem`)
 
+## Fully offline, no data collection
+
+**sinfo never touches the network.** It opens no sockets, downloads
+nothing, uploads nothing, and phones home to no one - the binary
+contains no networking code at all. Everything happens locally on
+the camera: registers are read over `/dev/mem` and `/dev/i2c-N`,
+results go to your terminal, and nothing is written anywhere unless
+you redirect it yourself. The static release binary has no
+dependencies and runs the same on an air-gapped bench board as on a
+networked camera. (Its predecessor downloaded a kernel module from
+the internet at runtime; this tool exists partly to end that.)
+
 ## Usage
 
 ```
