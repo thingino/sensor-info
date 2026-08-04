@@ -119,6 +119,27 @@ Sensors that need a special probe sequence (unlock writes, alternate
 ID values) are matched by name in `sinfo.c`'s probe loop; those need
 a code hook in addition to the table row.
 
+### Identifying an unknown sensor
+
+If a chip responds but nothing matches, the `ALL I2C DEVICES
+DETECTED` section of the report shows every register that answered
+and the values read. To build the new csv line from that you need:
+
+1. the sensor model name (board silkscreen, vendor firmware, or the
+   value pattern - most vendors encode the model in the ID, e.g.
+   `0x46:0x53` = gc4653),
+2. which registers are the chip's ID registers and their expected
+   values (the reads in the report are your candidates),
+3. the register/value byte widths (what the working entries of the
+   same vendor family use is almost always right),
+4. the MCLK frequency (24000000 unless the vendor driver says
+   otherwise).
+
+Note that entries probing the same address with different ID
+registers will show as extra "unknown device" rows in the report -
+partial reads of an already-identified chip are normal, not a
+second sensor.
+
 ## Building
 
 ```
