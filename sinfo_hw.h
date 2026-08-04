@@ -22,8 +22,11 @@ void hw_cpm_wr(uint32_t off, uint32_t val);
 /* Map a page of physical address space (GPIO blocks). NULL on failure. */
 volatile uint32_t *hw_map_phys(uint32_t phys, size_t len);
 
+/* Open bus (closing any previously open one). */
 int hw_i2c_open(int bus);
 int hw_i2c_xfer(struct i2c_msg *msgs, int n);
+/* Enumerate /dev/i2c-* bus numbers, ascending. Returns the count. */
+int hw_i2c_buses(int *buses, int max);
 
 int hw_sysfs_write(const char *path, const char *val);
 int hw_path_writable(const char *path);

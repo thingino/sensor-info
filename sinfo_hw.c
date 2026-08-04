@@ -6,6 +6,7 @@
  * sysfs for GPIO control. Mappings and descriptors live for the
  * process lifetime; sinfo is a one-shot tool.
  */
+#include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <stdio.h>
@@ -63,12 +64,18 @@ void hw_cpm_wr(uint32_t off, uint32_t val)
 	cpm_base[off / 4] = val;
 }
 
+static int i2c_cur_bus = -1;
+
 int hw_i2c_open(int bus)
 {
 	char path[32];
 
-	if (i2c_fd >= 0)
-		return 0;
+	if (i2c_fd >= 0) {
+		if (bus == i2c_cur_bus)
+			return 0;
+		close(i2c_fd);
+		i2c_fd = -1;
+	}
 	snprintf(path, sizeof(path), "/dev/i2c-%d", bus);
 	i2c_fd = open(path, O_RDWR);
 	if (i2c_fd < 0) {
@@ -76,6 +83,7 @@ int hw_i2c_open(int bus)
 			errno == ENOENT ? " (kernel needs CONFIG_I2C_CHARDEV=y)" : "");
 		return -1;
 	}
+	i2c_cur_bus = bus;
 	return 0;
 }
 
@@ -84,6 +92,29 @@ int hw_i2c_xfer(struct i2c_msg *msgs, int n)
 	struct i2c_rdwr_ioctl_data d = {.msgs = msgs, .nmsgs = n};
 
 	return ioctl(i2c_fd, I2C_RDWR, &d) < 0 ? -1 : 0;
+}
+
+int hw_i2c_buses(int *buses, int max)
+{
+	DIR *d;
+	struct dirent *e;
+	int n = 0, i, j, t;
+
+	d = opendir("/dev");
+	if (!d)
+		return 0;
+	while (n < max && (e = readdir(d))) {
+		if (sscanf(e->d_name, "i2c-%d", &t) == 1)
+			buses[n++] = t;
+	}
+	closedir(d);
+	for (i = 1; i < n; i++)
+		for (j = i; j > 0 && buses[j - 1] > buses[j]; j--) {
+			t = buses[j];
+			buses[j] = buses[j - 1];
+			buses[j - 1] = t;
+		}
+	return n;
 }
 
 int hw_sysfs_write(const char *path, const char *val)

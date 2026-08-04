@@ -28,6 +28,7 @@
  */
 
 #include <stdio.h>
+#include <limits.h>
 #include <stdlib.h>
 #include <string.h>
 #include <stdint.h>
@@ -42,6 +43,7 @@
 
 #define MAX_DETECTED_SENSORS 4
 #define MAX_I2C_SCAN_RESULTS 128
+#define MAX_I2C_BUSES	     8
 
 #define EXTAL_HZ	     24000000ull
 
@@ -71,21 +73,46 @@ enum { PLL_NONE = 0, PLL_A, PLL_M, PLL_V, PLL_E };
  *                                   m[28:20] n[19:14] od1[13:11] od0[10:7] */
 #define PLLSTYLE_T41 2
 
+/*
+ * One selectable MCLK output block. XBurst1 SoCs have a single CIMCDR
+ * and no pin fixup; T40 has three blocks (CIM0/1/2, pins PC31/30/29);
+ * T41 has one block whose pin serves every mclk id the vendor SDK
+ * accepts.
+ */
+struct mclk_blk {
+	uint32_t cdr_off; /* MCLK divider register, CPM offset */
+	int8_t port;	  /* pin function fixup: GPIO port, -1 = none */
+	int8_t pin;
+	int8_t func;
+};
+
 struct soc_desc {
 	const char *name;
 	const char *uname_tag; /* "isvp_<tag>" in uname -r, NULL = unknown */
 	int pll_style;
-	uint32_t cimcdr_off; /* CIM MCLK divider register, CPM offset */
+	const struct mclk_blk *mclk;
+	uint8_t num_mclk;
+	uint8_t default_mclk;
 	uint8_t mux_shift;
 	uint8_t mux_width;
 	uint8_t parent[4];   /* PLL per mux field value */
 	uint8_t default_mux; /* used when current parent is off/invalid */
 	int i2c_bus;
 	int reset_gpio;
-	int8_t mux_port; /* MCLK pin function fixup: GPIO port, -1 = none */
-	int8_t mux_pin;	 /* pin within port */
-	int8_t mux_func; /* device function number */
-	int tested;	 /* HW-validated */
+	int tested; /* HW-validated */
+};
+
+static const struct mclk_blk xb1_mclk[] = {
+	{.cdr_off = 0x7c, .port = -1},
+};
+/* T40 pins from the vendor set_sensor_mclk_function() (sensor-common.h) */
+static const struct mclk_blk t40_mclk[] = {
+	{.cdr_off = 0x90, .port = 2, .pin = 31, .func = 1},
+	{.cdr_off = 0x94, .port = 2, .pin = 30, .func = 1},
+	{.cdr_off = 0x98, .port = 2, .pin = 29, .func = 1},
+};
+static const struct mclk_blk t41_mclk[] = {
+	{.cdr_off = 0x90, .port = 0, .pin = 15, .func = 1},
 };
 
 /*
@@ -99,130 +126,127 @@ static const struct soc_desc soc_table[] = {
 		.name = "t31",
 		.uname_tag = "swan",
 		.pll_style = PLLSTYLE_NEW,
-		.cimcdr_off = 0x7c,
+		.mclk = xb1_mclk,
+		.num_mclk = 1,
 		.mux_shift = 30,
 		.mux_width = 2,
 		.parent = {PLL_A, PLL_M, PLL_V, PLL_NONE},
 		.default_mux = 2,
 		.i2c_bus = 0,
 		.reset_gpio = 18,
-		.mux_port = -1,
 		.tested = 1,
 	},
 	{
 		.name = "t23",
 		.uname_tag = "pike",
 		.pll_style = PLLSTYLE_NEW,
-		.cimcdr_off = 0x7c,
+		.mclk = xb1_mclk,
+		.num_mclk = 1,
 		.mux_shift = 30,
 		.mux_width = 2,
 		.parent = {PLL_A, PLL_M, PLL_NONE, PLL_NONE},
 		.default_mux = 1,
 		.i2c_bus = 0,
 		.reset_gpio = 18,
-		.mux_port = -1,
 		.tested = 1,
 	},
 	{
 		.name = "c100",
 		.uname_tag = NULL,
 		.pll_style = PLLSTYLE_NEW,
-		.cimcdr_off = 0x7c,
+		.mclk = xb1_mclk,
+		.num_mclk = 1,
 		.mux_shift = 30,
 		.mux_width = 2,
 		.parent = {PLL_A, PLL_M, PLL_V, PLL_NONE},
 		.default_mux = 2,
 		.i2c_bus = 0,
 		.reset_gpio = 18,
-		.mux_port = -1,
 		.tested = 0,
 	},
 	{
 		.name = "t20",
 		.uname_tag = "bull",
 		.pll_style = PLLSTYLE_NEW,
-		.cimcdr_off = 0x7c,
+		.mclk = xb1_mclk,
+		.num_mclk = 1,
 		.mux_shift = 30,
 		.mux_width = 2,
 		.parent = {PLL_A, PLL_M, PLL_V, PLL_V},
 		.default_mux = 2,
 		.i2c_bus = 0,
 		.reset_gpio = 18,
-		.mux_port = -1,
 		.tested = 1,
 	},
 	{
 		.name = "t30",
 		.uname_tag = "monkey",
 		.pll_style = PLLSTYLE_OLD,
-		.cimcdr_off = 0x7c,
+		.mclk = xb1_mclk,
+		.num_mclk = 1,
 		.mux_shift = 30,
 		.mux_width = 2,
 		.parent = {PLL_A, PLL_M, PLL_V, PLL_E},
 		.default_mux = 2,
 		.i2c_bus = 0,
 		.reset_gpio = 18,
-		.mux_port = -1,
 		.tested = 1,
 	},
 	{
 		.name = "t21",
 		.uname_tag = "turkey",
 		.pll_style = PLLSTYLE_OLD,
-		.cimcdr_off = 0x7c,
+		.mclk = xb1_mclk,
+		.num_mclk = 1,
 		.mux_shift = 30,
 		.mux_width = 2,
 		.parent = {PLL_A, PLL_M, PLL_V, PLL_E},
 		.default_mux = 2,
 		.i2c_bus = 0,
 		.reset_gpio = 18,
-		.mux_port = -1,
 		.tested = 1,
 	},
 	{
 		.name = "t10",
 		.uname_tag = "mango",
 		.pll_style = PLLSTYLE_NEW,
-		.cimcdr_off = 0x7c,
+		.mclk = xb1_mclk,
+		.num_mclk = 1,
 		.mux_shift = 31,
 		.mux_width = 1,
 		.parent = {PLL_A, PLL_M, PLL_NONE, PLL_NONE},
 		.default_mux = 1,
 		.i2c_bus = 0,
 		.reset_gpio = 18,
-		.mux_port = -1,
 		.tested = 1,
 	},
 	{
 		.name = "t40",
 		.uname_tag = NULL,
 		.pll_style = PLLSTYLE_NEW,
-		.cimcdr_off = 0x94,
+		.mclk = t40_mclk,
+		.num_mclk = 3,
+		.default_mclk = 1,
 		.mux_shift = 30,
 		.mux_width = 2,
 		.parent = {PLL_A, PLL_M, PLL_V, PLL_E},
 		.default_mux = 2,
 		.i2c_bus = 1,
 		.reset_gpio = 91,
-		.mux_port = 2,
-		.mux_pin = 30,
-		.mux_func = 1,
 		.tested = 1,
 	},
 	{
 		.name = "t41",
 		.uname_tag = NULL,
 		.pll_style = PLLSTYLE_T41,
-		.cimcdr_off = 0x90,
+		.mclk = t41_mclk,
+		.num_mclk = 1,
 		.mux_shift = 30,
 		.mux_width = 2,
 		.parent = {PLL_A, PLL_M, PLL_V, PLL_NONE},
 		.default_mux = 2,
 		.i2c_bus = 0,
 		.reset_gpio = 92,
-		.mux_port = 0,
-		.mux_pin = 15,
-		.mux_func = 1,
 		.tested = 1,
 	},
 };
@@ -231,7 +255,10 @@ static const struct soc_desc soc_table[] = {
 /* ------------------------------------------------------------------ state */
 
 static const struct soc_desc *cur_soc;
-static int bus_nr = -1; /* -1 = use SoC default */
+static const struct mclk_blk *cur_mclk;
+static int bus_nr = -1;	  /* -1 = use SoC default */
+static int bus_all;	  /* -b all: scan every /dev/i2c-* */
+static int mclk_sel = -1; /* -1 = use SoC default */
 static int reset_pin = -9999;
 static int pwdn_pin = -1;
 static int verbose;
@@ -245,8 +272,10 @@ static int verbose;
 static int primary_idx = -1;
 static int match_idx[MAX_DETECTED_SENSORS];
 static int num_matches;
+static int reset_owned, pwdn_owned;
 
 struct i2c_scan_result {
+	uint8_t bus;
 	uint8_t i2c_addr;
 	uint8_t responded;
 	uint32_t reg_values[8];
@@ -273,7 +302,7 @@ static int cim_wait_not_busy(void)
 	int i;
 
 	for (i = 0; i < 10000; i++) {
-		if (!(hw_cpm_rd(cur_soc->cimcdr_off) & (1u << BUSY_BIT)))
+		if (!(hw_cpm_rd(cur_mclk->cdr_off) & (1u << BUSY_BIT)))
 			return 0;
 		usleep(10);
 	}
@@ -348,7 +377,7 @@ static int mclk_enable(uint32_t hz)
 	uint32_t v, muxmask, mux, div, nv;
 	uint64_t prate;
 
-	v = hw_cpm_rd(cur_soc->cimcdr_off);
+	v = hw_cpm_rd(cur_mclk->cdr_off);
 	muxmask = (1u << cur_soc->mux_width) - 1;
 	mux = (v >> cur_soc->mux_shift) & muxmask;
 	prate = pll_rate(cur_soc->parent[mux]);
@@ -383,13 +412,13 @@ static int mclk_enable(uint32_t hz)
 		return -1;
 	nv = v & ~(muxmask << cur_soc->mux_shift) & ~DIV_MASK & ~(1u << STOP_BIT);
 	nv |= (mux << cur_soc->mux_shift) | (div - 1) | (1u << CE_BIT);
-	hw_cpm_wr(cur_soc->cimcdr_off, nv);
+	hw_cpm_wr(cur_mclk->cdr_off, nv);
 	if (cim_wait_not_busy())
 		return -1;
-	hw_cpm_wr(cur_soc->cimcdr_off, nv & ~(1u << CE_BIT));
+	hw_cpm_wr(cur_mclk->cdr_off, nv & ~(1u << CE_BIT));
 
 	vlog("MCLK: parent %llu Hz / %u = %llu Hz (CIMCDR 0x%08x)\n", (unsigned long long)prate,
-	     div, (unsigned long long)(prate / div), hw_cpm_rd(cur_soc->cimcdr_off));
+	     div, (unsigned long long)(prate / div), hw_cpm_rd(cur_mclk->cdr_off));
 	return 0;
 }
 
@@ -399,10 +428,10 @@ static void mclk_disable(void)
 
 	if (cim_wait_not_busy())
 		return;
-	v = hw_cpm_rd(cur_soc->cimcdr_off) | (1u << CE_BIT) | (1u << STOP_BIT);
-	hw_cpm_wr(cur_soc->cimcdr_off, v);
+	v = hw_cpm_rd(cur_mclk->cdr_off) | (1u << CE_BIT) | (1u << STOP_BIT);
+	hw_cpm_wr(cur_mclk->cdr_off, v);
 	cim_wait_not_busy();
-	hw_cpm_wr(cur_soc->cimcdr_off, v & ~(1u << CE_BIT));
+	hw_cpm_wr(cur_mclk->cdr_off, v & ~(1u << CE_BIT));
 }
 
 /*
@@ -429,42 +458,66 @@ static void xb2_mclk_pin_mux(void)
 	volatile uint32_t *port;
 	uint32_t pins;
 
-	if (cur_soc->mux_port < 0)
+	if (cur_mclk->port < 0)
 		return;
-	port = hw_map_phys(GPIO_PHYS + (uint32_t)cur_soc->mux_port * 0x1000, 0x1000);
+
+	/*
+	 * T40 vendor SDK writes this "VDD select 1.8V" word before muxing
+	 * any MCLK pin (set_sensor_mclk_function() in sensor-common.h).
+	 * Needed when no sensor driver has run since boot.
+	 */
+	if (!strcmp(cur_soc->name, "t40")) {
+		volatile uint32_t *pa = hw_map_phys(GPIO_PHYS, 0x1000);
+
+		if (pa)
+			pa[0x130 / 4] = 0x2aaa000;
+	}
+
+	port = hw_map_phys(GPIO_PHYS + (uint32_t)cur_mclk->port * 0x1000, 0x1000);
 	if (!port) {
-		elog("cannot map GPIO port %c\n", 'A' + cur_soc->mux_port);
+		elog("cannot map GPIO port %c\n", 'A' + cur_mclk->port);
 		return;
 	}
-	pins = 1u << cur_soc->mux_pin;
-	port[(cur_soc->mux_func & 0x8 ? 0x14 : 0x18) / 4] = pins; /* INT  S/C */
-	port[(cur_soc->mux_func & 0x4 ? 0x24 : 0x28) / 4] = pins; /* MSK  S/C */
-	port[(cur_soc->mux_func & 0x2 ? 0x34 : 0x38) / 4] = pins; /* PAT1 S/C */
-	port[(cur_soc->mux_func & 0x1 ? 0x44 : 0x48) / 4] = pins; /* PAT0 S/C */
-	vlog("MCLK pin mux: P%c%d -> function %d\n", 'A' + cur_soc->mux_port, cur_soc->mux_pin,
-	     cur_soc->mux_func);
+	pins = 1u << cur_mclk->pin;
+	port[(cur_mclk->func & 0x8 ? 0x14 : 0x18) / 4] = pins; /* INT  S/C */
+	port[(cur_mclk->func & 0x4 ? 0x24 : 0x28) / 4] = pins; /* MSK  S/C */
+	port[(cur_mclk->func & 0x2 ? 0x34 : 0x38) / 4] = pins; /* PAT1 S/C */
+	port[(cur_mclk->func & 0x1 ? 0x44 : 0x48) / 4] = pins; /* PAT0 S/C */
+	vlog("MCLK pin mux: P%c%d -> function %d\n", 'A' + cur_mclk->port, cur_mclk->pin,
+	     cur_mclk->func);
 }
 
 /* ------------------------------------------------------------ GPIO sysfs */
 
-/* Equivalent of gpio_request(): claim via sysfs export. */
-static int gpio_claim(int gpio)
+/*
+ * Equivalent of gpio_request(): claim via sysfs export. *owned records
+ * whether the export was ours, so release can restore the pre-run state
+ * instead of unexporting a pin someone else set up.
+ */
+static int gpio_claim(int gpio, int *owned)
 {
 	char buf[64], path[80];
 
+	*owned = 0;
 	snprintf(path, sizeof(path), "/sys/class/gpio/gpio%d/direction", gpio);
 	if (hw_path_writable(path))
-		return 0; /* already exported (e.g. by a previous run) */
+		return 0;
 
 	snprintf(buf, sizeof(buf), "%d", gpio);
 	if (hw_sysfs_write("/sys/class/gpio/export", buf) < 0)
 		return -1;
-	return hw_path_writable(path) ? 0 : -1;
+	if (!hw_path_writable(path))
+		return -1;
+	*owned = 1;
+	return 0;
 }
 
-static void gpio_release(int gpio)
+static void gpio_release(int gpio, int owned)
 {
 	char buf[64];
+
+	if (!owned)
+		return;
 
 	snprintf(buf, sizeof(buf), "%d", gpio);
 	hw_sysfs_write("/sys/class/gpio/unexport", buf);
@@ -544,7 +597,7 @@ static int sensor_matches_soc(const struct sensor_def *s)
 static void sensor_hw_prepare(const struct sensor_def *s)
 {
 	if (reset_pin != -1) {
-		if (gpio_claim(reset_pin) == 0) {
+		if (gpio_claim(reset_pin, &reset_owned) == 0) {
 			gpio_out(reset_pin, 1);
 			hw_msleep(20);
 			gpio_out(reset_pin, 0);
@@ -565,7 +618,7 @@ static void sensor_hw_prepare(const struct sensor_def *s)
 		}
 	}
 	if (pwdn_pin != -1) {
-		if (gpio_claim(pwdn_pin) == 0) {
+		if (gpio_claim(pwdn_pin, &pwdn_owned) == 0) {
 			gpio_out(pwdn_pin, 1);
 			hw_msleep(150);
 			gpio_out(pwdn_pin, 0);
@@ -582,9 +635,9 @@ static void sensor_hw_prepare(const struct sensor_def *s)
 static void sensor_hw_release(void)
 {
 	if (reset_pin != -1)
-		gpio_release(reset_pin);
+		gpio_release(reset_pin, reset_owned);
 	if (pwdn_pin != -1)
-		gpio_release(pwdn_pin);
+		gpio_release(pwdn_pin, pwdn_owned);
 }
 
 /*
@@ -593,14 +646,13 @@ static void sensor_hw_release(void)
  * sc2337p/sc3336p unlock writes, the sc2336p-vs-sc2337p disambiguation
  * via reg 0x801e, and the ov2735b alternate-ID quirk.
  */
-static int do_probe(void)
+static int do_probe(int bus)
 {
 	unsigned i;
 	int j;
 
-	num_matches = 0;
-	num_scan_results = 0;
-	primary_idx = -1;
+	if (hw_i2c_open(bus) < 0)
+		return -1;
 
 	for (i = 0; i < SENSOR_COUNT; i++) {
 		const struct sensor_def *s = &sensor_db[i];
@@ -618,6 +670,7 @@ static int do_probe(void)
 		sensor_hw_prepare(s);
 
 		memset(&scan_res, 0, sizeof(scan_res));
+		scan_res.bus = bus;
 		scan_res.i2c_addr = s->i2c_addr;
 
 		for (j = 0; j < idcnt; j++) {
@@ -687,7 +740,7 @@ static int do_probe(void)
 			if (num_matches < MAX_DETECTED_SENSORS) {
 				match_res[num_matches] = scan_res;
 				match_idx[num_matches++] = i;
-				vlog("MATCH: %s, I2C bus %d, address 0x%02X\n", s->name, bus_nr,
+				vlog("MATCH: %s, I2C bus %d, address 0x%02X\n", s->name, bus,
 				     s->i2c_addr);
 			}
 		}
@@ -696,9 +749,42 @@ static int do_probe(void)
 			scan_results[num_scan_results++] = scan_res;
 	}
 
+	return 0;
+}
+
+/*
+ * Scan one bus (-b N), or every /dev/i2c-* the kernel exposes (-b all)
+ * for units with sensors on more than one bus. One MCLK block drives
+ * the whole run; a second block needs a second run with -m.
+ */
+static int probe_all(void)
+{
+	int buses[MAX_I2C_BUSES];
+	int i, n;
+
+	num_matches = 0;
+	num_scan_results = 0;
+	primary_idx = -1;
+
+	xb2_mclk_pin_mux();
+
+	if (bus_all) {
+		n = hw_i2c_buses(buses, MAX_I2C_BUSES);
+		if (n <= 0) {
+			elog("no /dev/i2c-* buses found\n");
+			return -1;
+		}
+	} else {
+		buses[0] = bus_nr;
+		n = 1;
+	}
+
+	for (i = 0; i < n; i++)
+		if (do_probe(buses[i]) < 0)
+			return -1;
+
 	if (num_matches > 0)
 		primary_idx = match_idx[0];
-
 	return 0;
 }
 
@@ -714,7 +800,7 @@ static int same_device(const struct i2c_scan_result *a, const struct i2c_scan_re
 {
 	int j;
 
-	if (a->i2c_addr != b->i2c_addr || a->num_regs != b->num_regs)
+	if (a->bus != b->bus || a->i2c_addr != b->i2c_addr || a->num_regs != b->num_regs)
 		return 0;
 	for (j = 0; j < a->num_regs; j++)
 		if (a->reg_addrs[j] != b->reg_addrs[j] || a->reg_values[j] != b->reg_values[j])
@@ -760,6 +846,13 @@ static void print_report(void)
 				aliases++;
 			}
 
+			int bus = -1;
+
+			for (i = 0; i < num_matches; i++)
+				if (grp[i] == n) {
+					bus = match_res[i].bus;
+					break;
+				}
 			printf("%d. %s\n", n + 1, s->name);
 
 			if (aliases) {
@@ -773,7 +866,7 @@ static void print_report(void)
 				printf(" (identical ID registers)\n");
 			}
 
-			printf("   I2C Bus: %d\n", bus_nr);
+			printf("   I2C Bus: %d\n", bus);
 			printf("   I2C Address: 0x%02X\n", s->i2c_addr);
 			printf("   Clock: %s @ %u Hz\n", s->mclk_name, s->clk);
 
@@ -799,10 +892,11 @@ static void print_report(void)
 			struct i2c_scan_result *res = &scan_results[i];
 
 			if (res->sensor_name[0] != '\0')
-				printf("I2C Address 0x%02X: %s [MATCHED]\n", res->i2c_addr,
-				       res->sensor_name);
+				printf("I2C Bus %d Address 0x%02X: %s [MATCHED]\n", res->bus,
+				       res->i2c_addr, res->sensor_name);
 			else
-				printf("I2C Address 0x%02X: UNKNOWN DEVICE\n", res->i2c_addr);
+				printf("I2C Bus %d Address 0x%02X: UNKNOWN DEVICE\n", res->bus,
+				       res->i2c_addr);
 
 			if (res->num_regs > 0) {
 				printf("  Register reads:\n");
@@ -826,7 +920,7 @@ static void print_report(void)
 
 			if (res->sensor_name[0] != '\0')
 				continue;
-			printf("Device at I2C address 0x%02X:\n", res->i2c_addr);
+			printf("Device at I2C bus %d address 0x%02X:\n", res->bus, res->i2c_addr);
 			printf("  To add this sensor to the database, you need:\n");
 			printf("  1. Sensor model name\n");
 			printf("  2. ID register addresses (tried: ");
@@ -846,7 +940,10 @@ static void print_report(void)
 	printf("CONFIGURATION:\n");
 	printf("-------------------------------------------\n");
 	printf("SoC: %s\n", cur_soc->name);
-	printf("I2C Adapter: %d\n", bus_nr);
+	if (bus_all)
+		printf("I2C Adapter: all\n");
+	else
+		printf("I2C Adapter: %d\n", bus_nr);
 	printf("Reset GPIO: %d\n", reset_pin);
 	printf("Power Down GPIO: %d\n", pwdn_pin);
 	printf("\n");
@@ -873,11 +970,20 @@ static int do_open(const char *name)
 		return -1;
 	}
 
+	/*
+	 * The module's sensor_open() skips the XBurst2 pin mux only because
+	 * its probe (which does it) always runs at insmod; standalone open
+	 * must do it itself.
+	 */
+	xb2_mclk_pin_mux();
+	if (hw_i2c_open(bus_nr) < 0)
+		return -1;
+
 	if (mclk_enable(s->clk) < 0)
 		return -1;
 
 	if (reset_pin != -1) {
-		if (gpio_claim(reset_pin) == 0) {
+		if (gpio_claim(reset_pin, &reset_owned) == 0) {
 			gpio_out(reset_pin, 1);
 			hw_msleep(20);
 			gpio_out(reset_pin, 0);
@@ -889,7 +995,7 @@ static int do_open(const char *name)
 		}
 	}
 	if (pwdn_pin != -1) {
-		if (gpio_claim(pwdn_pin) == 0) {
+		if (gpio_claim(pwdn_pin, &pwdn_owned) == 0) {
 			gpio_out(pwdn_pin, 1);
 			hw_msleep(150);
 			gpio_out(pwdn_pin, 0);
@@ -1021,12 +1127,38 @@ static const struct soc_desc *soc_autodetect(void)
 
 /* ------------------------------------------------------------------ main */
 
+static int parse_int(const char *s, int *out)
+{
+	char *end;
+	long v;
+
+	errno = 0;
+	v = strtol(s, &end, 0);
+	if (errno || end == s || *end || v < INT_MIN || v > INT_MAX)
+		return -1;
+	*out = (int)v;
+	return 0;
+}
+
+static int parse_uint32(const char *s, uint32_t *out)
+{
+	char *end;
+	unsigned long v;
+
+	errno = 0;
+	v = strtoul(s, &end, 0);
+	if (errno || end == s || *end || v > UINT32_MAX)
+		return -1;
+	*out = (uint32_t)v;
+	return 0;
+}
+
 static void usage(void)
 {
 	fprintf(stderr,
 		"sinfo - userspace Ingenic image sensor detector\n"
 		"\n"
-		"usage: sinfo [-s soc] [-b bus] [-r gpio] [-p gpio] [-v] [command]\n"
+		"usage: sinfo [-s soc] [-b bus|all] [-m mclk] [-r gpio] [-p gpio] [-v] [command]\n"
 		"\n"
 		"commands:\n"
 		"  probe                      scan for sensors, print report (default)\n"
@@ -1037,7 +1169,8 @@ static void usage(void)
 		"\n"
 		"options:\n"
 		"  -s <soc>   t10 t20 t21 t23 t30 t31 c100 t40 t41 (default: auto from uname)\n"
-		"  -b <bus>   I2C bus number (default: SoC default)\n"
+		"  -b <bus>   I2C bus number, or 'all' to scan every bus (default: SoC default)\n"
+		"  -m <n>     MCLK output block for SoCs with several (t40: 0/1/2, default 1)\n"
 		"  -r <gpio>  reset GPIO (default: SoC default; -1 = none)\n"
 		"  -p <gpio>  power-down GPIO (default: -1)\n"
 		"  -v         verbose\n");
@@ -1049,19 +1182,28 @@ int main(int argc, char **argv)
 	const char *cmd = "probe";
 	int opt, ret = 0;
 
-	while ((opt = getopt(argc, argv, "s:b:r:p:vh")) != -1) {
+	while ((opt = getopt(argc, argv, "s:b:m:r:p:vh")) != -1) {
 		switch (opt) {
 		case 's':
 			soc_name = optarg;
 			break;
 		case 'b':
-			bus_nr = atoi(optarg);
+			if (!strcmp(optarg, "all"))
+				bus_all = 1;
+			else if (parse_int(optarg, &bus_nr) || bus_nr < 0)
+				goto bad_arg;
+			break;
+		case 'm':
+			if (parse_int(optarg, &mclk_sel) || mclk_sel < 0)
+				goto bad_arg;
 			break;
 		case 'r':
-			reset_pin = atoi(optarg);
+			if (parse_int(optarg, &reset_pin))
+				goto bad_arg;
 			break;
 		case 'p':
-			pwdn_pin = atoi(optarg);
+			if (parse_int(optarg, &pwdn_pin))
+				goto bad_arg;
 			break;
 		case 'v':
 			verbose = 1;
@@ -1073,6 +1215,10 @@ int main(int argc, char **argv)
 			usage();
 			return 2;
 		}
+		continue;
+	bad_arg:
+		elog("invalid value '%s' for -%c\n", optarg, opt);
+		return 2;
 	}
 	if (optind < argc)
 		cmd = argv[optind];
@@ -1102,6 +1248,14 @@ int main(int argc, char **argv)
 		bus_nr = cur_soc->i2c_bus;
 	if (reset_pin == -9999)
 		reset_pin = cur_soc->reset_gpio;
+	if (mclk_sel == -1)
+		mclk_sel = cur_soc->default_mclk;
+	if (mclk_sel >= cur_soc->num_mclk) {
+		elog("SoC %s has %u MCLK block(s), -m %d is out of range\n", cur_soc->name,
+		     cur_soc->num_mclk, mclk_sel);
+		return 2;
+	}
+	cur_mclk = &cur_soc->mclk[mclk_sel];
 
 	if (geteuid() != 0)
 		fprintf(stderr, "sinfo: [Warning] not running as root, "
@@ -1109,15 +1263,12 @@ int main(int argc, char **argv)
 
 	if (hw_cpm_init())
 		return 2;
-	if (hw_i2c_open(bus_nr))
-		return 2;
 
 	if (!strcmp(cur_soc->name, "t21"))
 		t21_init_quirk();
-	xb2_mclk_pin_mux();
 
 	if (!strcmp(cmd, "probe") || !strcmp(cmd, "1")) {
-		if (do_probe() < 0)
+		if (probe_all() < 0)
 			return 2;
 		print_report();
 		ret = num_matches > 0 ? 0 : 1;
@@ -1134,18 +1285,32 @@ int main(int argc, char **argv)
 			elog("i2c-r needs <addr> <len>\n");
 			return 2;
 		}
-		ret = do_raw_i2c(0, strtoul(argv[optind + 1], NULL, 0), 0, atoi(argv[optind + 2]))
-			      ? 2
-			      : 0;
+		uint32_t addr;
+		int len;
+
+		if (parse_uint32(argv[optind + 1], &addr) || parse_int(argv[optind + 2], &len)) {
+			elog("invalid i2c-r arguments\n");
+			return 2;
+		}
+		if (hw_i2c_open(bus_nr))
+			return 2;
+		ret = do_raw_i2c(0, addr, 0, len) ? 2 : 0;
 	} else if (!strcmp(cmd, "i2c-w")) {
 		if (optind + 3 >= argc) {
 			elog("i2c-w needs <addr> <data> <len>\n");
 			return 2;
 		}
-		ret = do_raw_i2c(1, strtoul(argv[optind + 1], NULL, 0),
-				 strtoul(argv[optind + 2], NULL, 0), atoi(argv[optind + 3]))
-			      ? 2
-			      : 0;
+		uint32_t addr, data;
+		int len;
+
+		if (parse_uint32(argv[optind + 1], &addr) ||
+		    parse_uint32(argv[optind + 2], &data) || parse_int(argv[optind + 3], &len)) {
+			elog("invalid i2c-w arguments\n");
+			return 2;
+		}
+		if (hw_i2c_open(bus_nr))
+			return 2;
+		ret = do_raw_i2c(1, addr, data, len) ? 2 : 0;
 	} else {
 		elog("unknown command '%s'\n", cmd);
 		usage();
