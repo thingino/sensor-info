@@ -636,6 +636,51 @@ static void test_same_device_bus_aware(void)
 	CHECK(!same_device(&a, &b));
 }
 
+static void set_chipid(uint32_t cpuid, uint32_t type2)
+{
+	mock_efuse[0x2c / 4] = cpuid << 12;
+	mock_sub[0x250 / 4] = type2 << 16;
+}
+
+static void test_soc_chipid_detect(void)
+{
+	static const struct {
+		uint32_t cpuid;
+		const char *family;
+	} map[] = {
+		{0x0005, "t10"}, {0x2000, "t20"}, {0x0021, "t21"},
+		{0x0023, "t23"}, {0x0030, "t30"}, {0x0031, "t31"},
+	};
+	unsigned i;
+
+	for (i = 0; i < sizeof(map) / sizeof(map[0]); i++) {
+		mock_reset();
+		set_chipid(map[i].cpuid, 0);
+		CHECK(soc_from_chipid() == soc_by_name(map[i].family));
+	}
+
+	/* unambiguous T41 SKUs */
+	mock_reset();
+	set_chipid(0x0040, 0xaaaa); /* t41nq */
+	CHECK(soc_from_chipid() == soc_by_name("t41"));
+	set_chipid(0x0040, 0x9999); /* t41lq */
+	CHECK(soc_from_chipid() == soc_by_name("t41"));
+
+	/* shared T40/T41 SKU code falls back to t40 (no cpuinfo here) */
+	set_chipid(0x0040, 0x7777);
+	CHECK(soc_from_chipid() == soc_by_name("t40"));
+
+	/* unsupported and unknown families defer to the rest of the chain */
+	set_chipid(0x0001, 0);
+	CHECK(soc_from_chipid() == NULL);
+	set_chipid(0x0033, 0);
+	CHECK(soc_from_chipid() == NULL);
+	set_chipid(0x0032, 0);
+	CHECK(soc_from_chipid() == NULL);
+	set_chipid(0xbeef, 0);
+	CHECK(soc_from_chipid() == NULL);
+}
+
 static void test_soc_lookup(void)
 {
 	CHECK(soc_by_name("t31") != NULL);
@@ -693,6 +738,7 @@ int main(void)
 	test_gpio_claim_failure_warns_once();
 	test_gpio_export_ownership();
 	test_same_device_bus_aware();
+	test_soc_chipid_detect();
 	test_soc_lookup();
 	test_table_invariants();
 

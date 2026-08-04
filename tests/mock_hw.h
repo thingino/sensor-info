@@ -33,6 +33,8 @@ struct mock_chip {
 typedef int (*mock_i2c_hook_fn)(int bus, struct i2c_msg *msgs, int n);
 
 extern uint32_t mock_cpm[];
+extern uint32_t mock_efuse[];
+extern uint32_t mock_sub[];
 extern struct mock_cpm_write mock_cpm_writes[];
 extern int mock_cpm_nwrites;
 extern struct mock_chip mock_chips[];

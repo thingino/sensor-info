@@ -30,8 +30,6 @@
 #include <stdint.h>
 #include <unistd.h>
 #include <errno.h>
-#include <ctype.h>
-#include <sys/utsname.h>
 #include <linux/i2c.h>
 
 #include "sensors.h"
@@ -84,7 +82,6 @@ struct mclk_blk {
 
 struct soc_desc {
 	const char *name;
-	const char *uname_tag; /* "isvp_<tag>" in uname -r, NULL = unknown */
 	int pll_style;
 	const struct mclk_blk *mclk;
 	uint8_t num_mclk;
@@ -121,7 +118,6 @@ static const struct soc_desc soc_table[] = {
 
 	{
 		.name = "c100",
-		.uname_tag = NULL,
 		.pll_style = PLLSTYLE_NEW,
 		.mclk = xb1_mclk,
 		.num_mclk = 1,
@@ -135,7 +131,6 @@ static const struct soc_desc soc_table[] = {
 	},
 	{
 		.name = "t10",
-		.uname_tag = "mango",
 		.pll_style = PLLSTYLE_NEW,
 		.mclk = xb1_mclk,
 		.num_mclk = 1,
@@ -149,7 +144,6 @@ static const struct soc_desc soc_table[] = {
 	},
 	{
 		.name = "t20",
-		.uname_tag = "bull",
 		.pll_style = PLLSTYLE_NEW,
 		.mclk = xb1_mclk,
 		.num_mclk = 1,
@@ -163,7 +157,6 @@ static const struct soc_desc soc_table[] = {
 	},
 	{
 		.name = "t21",
-		.uname_tag = "turkey",
 		.pll_style = PLLSTYLE_OLD,
 		.mclk = xb1_mclk,
 		.num_mclk = 1,
@@ -177,7 +170,6 @@ static const struct soc_desc soc_table[] = {
 	},
 	{
 		.name = "t23",
-		.uname_tag = "pike",
 		.pll_style = PLLSTYLE_NEW,
 		.mclk = xb1_mclk,
 		.num_mclk = 1,
@@ -191,7 +183,6 @@ static const struct soc_desc soc_table[] = {
 	},
 	{
 		.name = "t30",
-		.uname_tag = "monkey",
 		.pll_style = PLLSTYLE_OLD,
 		.mclk = xb1_mclk,
 		.num_mclk = 1,
@@ -205,7 +196,6 @@ static const struct soc_desc soc_table[] = {
 	},
 	{
 		.name = "t31",
-		.uname_tag = "swan",
 		.pll_style = PLLSTYLE_NEW,
 		.mclk = xb1_mclk,
 		.num_mclk = 1,
@@ -219,7 +209,6 @@ static const struct soc_desc soc_table[] = {
 	},
 	{
 		.name = "t40",
-		.uname_tag = NULL,
 		.pll_style = PLLSTYLE_NEW,
 		.mclk = t40_mclk,
 		.num_mclk = 3,
@@ -234,7 +223,6 @@ static const struct soc_desc soc_table[] = {
 	},
 	{
 		.name = "t41",
-		.uname_tag = NULL,
 		.pll_style = PLLSTYLE_T41,
 		.mclk = t41_mclk,
 		.num_mclk = 1,
@@ -1223,67 +1211,87 @@ static const struct soc_desc *soc_by_name(const char *name)
 	return NULL;
 }
 
-static void str_tolower(char *s)
+/*
+ * Chip-id registers, the same scheme as thingino's soc tool: works on
+ * any firmware, no kernel support beyond /dev/mem. cpuid (efuse
+ * 0x1300002C bits [27:12]) names the family; the T40/T41 generation
+ * shares cpuid 0x40 and splits on type2 (0x13540250 bits [31:16]),
+ * with three SKU codes shared between the two families - those fall
+ * back to the DT machine name, then to T40 with a warning.
+ */
+static const struct soc_desc *soc_from_chipid(void)
 {
-	for (; *s; s++)
-		*s = tolower((unsigned char)*s);
+	volatile uint32_t *efuse = hw_map_phys(0x13000000, 0x1000);
+	volatile uint32_t *sub;
+	uint32_t cpuid, type2;
+
+	if (!efuse)
+		return NULL;
+	cpuid = (efuse[0x2c / 4] >> 12) & 0xffff;
+	vlog("chip id: cpuid 0x%04x\n", cpuid);
+
+	switch (cpuid) {
+	case 0x0005:
+		return soc_by_name("t10");
+	case 0x2000:
+		return soc_by_name("t20");
+	case 0x0021:
+		return soc_by_name("t21");
+	case 0x0023:
+		return soc_by_name("t23");
+	case 0x0030:
+		return soc_by_name("t30");
+	case 0x0031:
+		return soc_by_name("t31"); /* C100 identifies as T31A; same CIM layout */
+	case 0x0040:
+		break; /* T40/T41, split below */
+	case 0x0001:
+	case 0x0032:
+	case 0x0033:
+		elog("detected %s, which sinfo does not support\n", cpuid == 0x0001   ? "an A1"
+								    : cpuid == 0x0032 ? "a T32"
+										      : "a T33");
+		return NULL;
+	default:
+		return NULL; /* unknown: let the other detectors try */
+	}
+
+	sub = hw_map_phys(0x13540000, 0x1000);
+	if (!sub)
+		return NULL;
+	type2 = (sub[0x250 / 4] >> 16) & 0xffff;
+	vlog("chip id: type2 0x%04x\n", type2);
+
+	switch (type2) {
+	case 0x2222:
+	case 0x3333:
+	case 0x4444:
+	case 0x5555:
+	case 0x6666:
+	case 0x9999:
+	case 0xaaaa:
+	case 0xbbbb:
+	case 0xcccc:
+		return soc_by_name("t41");
+	case 0x1111: /* t40n / t41n */
+	case 0x7777: /* t40xp / t41zn */
+	case 0x8888: /* t40nn / t41lc */
+		fprintf(stderr,
+			"sinfo: [Warning] chip id 0x40/0x%04x is shared "
+			"between T40 and T41 SKUs; assuming t40, use -s "
+			"to override\n",
+			type2);
+		return soc_by_name("t40");
+	default:
+		return soc_by_name("t40");
+	}
 }
 
-/*
- * Detection chain:
- * 1. isvp_<codename> in uname -r (XBurst1 vendor kernels, e.g. isvp_swan)
- * 2. /proc/cpuinfo: "system type" codename, or the machine name for
- *    XBurst2 built-in DTs (T41 vendor DT is ingenic,marmot)
- * 3. thingino's `soc -f` tool
- */
+/* Chip-id registers are the sole detector; everything else lied less
+ * reliably than the silicon. -s overrides. */
 static const struct soc_desc *soc_autodetect(void)
 {
-	struct utsname u;
-	unsigned i;
-	char buf[256];
-	FILE *f;
-
-	if (uname(&u) == 0) {
-		str_tolower(u.release);
-		for (i = 0; i < SOC_COUNT; i++)
-			if (soc_table[i].uname_tag && strstr(u.release, soc_table[i].uname_tag))
-				return &soc_table[i];
-	}
-
-	f = fopen("/proc/cpuinfo", "r");
-	if (f) {
-		while (fgets(buf, sizeof(buf), f)) {
-			if (strncmp(buf, "system type", 11) && strncmp(buf, "machine", 7))
-				continue;
-			str_tolower(buf);
-			for (i = 0; i < SOC_COUNT; i++)
-				if (soc_table[i].uname_tag && strstr(buf, soc_table[i].uname_tag)) {
-					fclose(f);
-					return &soc_table[i];
-				}
-			/* XBurst2 vendor DT machine names */
-			if (strstr(buf, "marmot")) {
-				fclose(f);
-				return soc_by_name("t41");
-			}
-			if (strstr(buf, "shark")) {
-				fclose(f);
-				return soc_by_name("t40");
-			}
-		}
-		fclose(f);
-	}
-
-	f = popen("soc -f 2>/dev/null", "r");
-	if (f) {
-		if (fgets(buf, sizeof(buf), f)) {
-			buf[strcspn(buf, "\r\n")] = '\0';
-			pclose(f);
-			return soc_by_name(buf);
-		}
-		pclose(f);
-	}
-	return NULL;
+	return soc_from_chipid();
 }
 
 /* ------------------------------------------------------------------ main */
@@ -1330,7 +1338,7 @@ static void usage(void)
 		"  i2c-w <addr> <data> <len>  raw I2C write\n"
 		"\n"
 		"options:\n"
-		"  -s <soc>   t10 t20 t21 t23 t30 t31 c100 t40 t41 (default: auto from uname)\n"
+		"  -s <soc>   t10 t20 t21 t23 t30 t31 c100 t40 t41 (default: auto from chip id)\n"
 		"  -b <bus>   I2C bus number, or 'all' to scan every bus (default: SoC default)\n"
 		"  -m <n>     MCLK output block for SoCs with several (t40: 0/1/2, default 1)\n"
 		"  -r <gpio>  reset GPIO (default: SoC default; -1 = none)\n"

@@ -52,11 +52,13 @@ names, one per line.
 
 ### SoC auto-detection
 
-Resolution order: `-s` flag, `isvp_<codename>` in `uname -r`,
-`/proc/cpuinfo` (`system type` codename or the XBurst2 machine
-name), then thingino's `soc -f`. Known codenames: swan=t31,
-pike=t23, bull=t20, monkey=t30, turkey=t21, mango=t10; machine
-names marmot=t41, shark=t40.
+The SoC is read from the chip-id registers over `/dev/mem` (the
+same scheme as thingino's `soc` tool), so detection works on any
+firmware with no kernel support beyond `/dev/mem`. `-s` overrides.
+Three SKU codes are shared between T40 and T41 silicon
+(t40n/t41n, t40xp/t41zn, t40nn/t41lc); those default to t40 with a
+warning - pass `-s t41` on the T41 variants. C100 identifies as
+T31, whose clock layout it shares.
 
 ## How it works
 

@@ -19,6 +19,8 @@ struct mock_cpm_write mock_cpm_writes[MOCK_MAX_WRITES];
 int mock_cpm_nwrites;
 
 static uint32_t mock_gpio[MOCK_GPIO_PORTS][0x1000 / 4];
+uint32_t mock_efuse[0x1000 / 4];
+uint32_t mock_sub[0x1000 / 4];
 
 struct mock_chip mock_chips[MOCK_MAX_CHIPS];
 int mock_nchips;
@@ -40,6 +42,8 @@ void mock_reset(void)
 {
 	memset(mock_cpm, 0, sizeof(mock_cpm));
 	memset(mock_gpio, 0, sizeof(mock_gpio));
+	memset(mock_efuse, 0, sizeof(mock_efuse));
+	memset(mock_sub, 0, sizeof(mock_sub));
 	mock_cpm_nwrites = 0;
 	mock_nchips = 0;
 	mock_i2c_hook = NULL;
@@ -125,6 +129,10 @@ volatile uint32_t *hw_map_phys(uint32_t phys, size_t len)
 		return mock_cpm;
 	if (phys >= 0x10010000 && phys < 0x10010000 + MOCK_GPIO_PORTS * 0x1000u)
 		return mock_gpio[(phys - 0x10010000) / 0x1000];
+	if (phys == 0x13000000)
+		return mock_efuse;
+	if (phys == 0x13540000)
+		return mock_sub;
 	return NULL;
 }
 
