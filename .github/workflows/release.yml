@@ -1,0 +1,49 @@
+# Release build: push a v* tag to publish a static MIPS binary anyone
+# can run on any Ingenic camera, thingino or not.
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Verify sensor table is in sync
+        run: python3 tools/gen-sensors.py --check
+
+      - name: Run test suite (ASAN + UBSan)
+        run: make test
+
+      - name: Fetch thingino toolchain (xburst1 musl, gcc16)
+        run: |
+          mkdir -p /opt/thingino-toolchain
+          curl -fSL "https://github.com/themactep/thingino-firmware/releases/download/toolchain-x86_64/thingino-toolchain-x86_64_xburst1_musl_gcc16-linux-mipsel.tar.gz" \
+            | tar xz -C /opt/thingino-toolchain --strip-components=1
+
+      - name: Build static binary
+        run: |
+          make CROSS_COMPILE=/opt/thingino-toolchain/bin/mipsel-linux-
+          /opt/thingino-toolchain/bin/mipsel-linux-strip sinfo
+          file sinfo | grep -q "statically linked\|static" || { echo "not static"; exit 1; }
+
+      - name: Smoke test under qemu
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq qemu-user-static
+          qemu-mipsel-static ./sinfo -h
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cp sinfo sinfo-mipsel-static
+          sha256sum sinfo-mipsel-static > sha256sums.txt
+          gh release create "$GITHUB_REF_NAME" sinfo-mipsel-static sha256sums.txt \
+            --title "sensor-info $GITHUB_REF_NAME" \
+            --notes "Static MIPS binary (musl, thingino gcc16 xburst1 toolchain). Runs on any Ingenic T-series camera regardless of firmware: \`chmod +x sinfo-mipsel-static && ./sinfo-mipsel-static\`. See the README for usage, supported SoCs, and requirements (root, I2C chardev, GPIO sysfs, /dev/mem)."
