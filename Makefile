@@ -1,8 +1,9 @@
-# -Os: on MIPS32 the small I-caches make larger code slower, not faster.
+# Size-tuned: -Oz plus section GC. On MIPS32 the small I-caches make
+# smaller code faster, not just smaller.
 CROSS_COMPILE ?=
 CC := $(CROSS_COMPILE)gcc
-CFLAGS ?= -Os -Wall -Wextra -std=gnu99
-LDFLAGS ?= -static
+CFLAGS ?= -Oz -Wall -Wextra -std=gnu99 -ffunction-sections -fdata-sections
+LDFLAGS ?= -static -Wl,--gc-sections -Wl,-z,max-page-size=0x1000
 
 OBJS := sinfo.o sinfo_hw.o
 

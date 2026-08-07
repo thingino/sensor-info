@@ -8,6 +8,7 @@
  */
 #include <dirent.h>
 #include <errno.h>
+#include <stdlib.h>
 #include <fcntl.h>
 #include <stdio.h>
 #include <string.h>
@@ -104,7 +105,12 @@ int hw_i2c_buses(int *buses, int max)
 	if (!d)
 		return 0;
 	while (n < max && (e = readdir(d))) {
-		if (sscanf(e->d_name, "i2c-%d", &t) == 1)
+		char *end;
+
+		if (strncmp(e->d_name, "i2c-", 4))
+			continue;
+		t = (int)strtol(e->d_name + 4, &end, 10);
+		if (end != e->d_name + 4 && !*end)
 			buses[n++] = t;
 	}
 	closedir(d);

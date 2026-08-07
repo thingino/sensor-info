@@ -734,7 +734,7 @@ static void test_table_invariants(void)
 		CHECK(s->name && s->name[0]);
 		CHECK(s->i2c_addr <= 0x7f);
 		CHECK(s->clk > 0);
-		CHECK(s->id_cnt >= 1 && s->id_cnt <= 8);
+		CHECK(s->id_cnt >= 1 && s->id_cnt <= 4);
 		CHECK(s->id_addr_len >= 1 && s->id_addr_len <= 4);
 		CHECK(s->id_value_len >= 1 && s->id_value_len <= 4);
 		CHECK(s->soc <= S_NOT_T41);

@@ -33,7 +33,7 @@ CSV = ROOT / "sensors.csv"
 OUT = ROOT / "sensors.h"
 
 SOC_FLAGS = {"any": "S_ANY", "t41-only": "S_T41_ONLY", "not-t41": "S_NOT_T41"}
-MAX_IDS = 8
+MAX_IDS = 4
 
 HEADER = """\
 /* SPDX-License-Identifier: GPL-2.0 */
@@ -56,15 +56,15 @@ HEADER = """\
 #define S_T41_ONLY  1
 #define S_NOT_T41   2
 
+/* Packed for size: this table dominates the binary's data segment. */
 struct sensor_def {
 	const char *name;	/* sensor model name */
-	uint8_t i2c_addr;	/* 7-bit I2C address */
-	const char *mclk_name;	/* clock source label (cosmetic, for report) */
+	uint16_t id_value[4];	/* expected ID register values */
+	uint16_t id_addr[4];	/* ID register addresses */
 	uint32_t clk;		/* MCLK frequency in Hz */
-	uint32_t id_value[8];	/* expected ID register values */
-	uint32_t id_value_len;	/* value width in bytes per read */
-	uint32_t id_addr[8];	/* ID register addresses */
-	uint32_t id_addr_len;	/* register address width in bytes */
+	uint8_t i2c_addr;	/* 7-bit I2C address */
+	uint8_t id_value_len;	/* value width in bytes per read */
+	uint8_t id_addr_len;	/* register address width in bytes */
 	uint8_t id_cnt;		/* number of ID registers to check */
 	uint8_t soc;		/* S_ANY / S_T41_ONLY / S_NOT_T41 */
 };
@@ -119,6 +119,8 @@ def generate():
                 die(f"line {ln}: {name}: {len(regs)} ID registers")
             if not (1 <= rw <= 4 and 1 <= vw <= 4):
                 die(f"line {ln}: {name}: reg/val width out of range")
+            if any(x > 0xFFFF for x in regs + vals):
+                die(f"line {ln}: {name}: register/value exceeds 16 bits")
             if not 0 <= addr <= 0x7F:
                 die(f"line {ln}: {name}: I2C address out of range")
             key = (name, addr, tuple(regs), tuple(vals), soc_s)
@@ -128,8 +130,8 @@ def generate():
             vals_c = ", ".join(f"{v:#x}" for v in vals)
             regs_c = ", ".join(f"{r:#x}" for r in regs)
             out.write(
-                f'\t{{"{name}", {addr:#04x}, "cgu_cim", {clk}, '
-                f"{{{vals_c}}}, {vw}, {{{regs_c}}}, {rw}, "
+                f'\t{{"{name}", {{{vals_c}}}, {{{regs_c}}}, {clk}, '
+                f"{addr:#04x}, {vw}, {rw}, "
                 f"{len(regs)}, {SOC_FLAGS[soc_s]}}},\n"
             )
     out.write(FOOTER)
