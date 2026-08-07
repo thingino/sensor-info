@@ -4,9 +4,12 @@ CROSS_COMPILE ?=
 CC := $(CROSS_COMPILE)gcc
 # (raptor's -flto is deliberately absent: it exists to drop unused
 # library code, and sinfo links nothing but prebuilt libc)
+# -fno-pie: MIPS PIE code pays a real tax (GOT-relative loads, indirect
+# calls, reloc sections) - 4.2 KB raw / 5% compressed on the dynamic
+# build. ASLR buys nothing for a root-run offline diagnostic.
 CFLAGS ?= -Oz -Wall -Wextra -std=gnu99 -ffunction-sections -fdata-sections \
-	  -fno-asynchronous-unwind-tables -fmerge-all-constants -fno-ident
-LDFLAGS ?= -static -Wl,--gc-sections -Wl,-z,max-page-size=0x1000
+	  -fno-asynchronous-unwind-tables -fmerge-all-constants -fno-ident -fno-pie
+LDFLAGS ?= -static -no-pie -Wl,--gc-sections -Wl,-z,max-page-size=0x1000
 
 OBJS := sinfo.o sinfo_hw.o
 
