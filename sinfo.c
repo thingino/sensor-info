@@ -39,7 +39,7 @@
 #define MAX_I2C_SCAN_RESULTS 128
 #define MAX_I2C_BUSES	     8
 
-#define EXTAL_HZ	     24000000ull
+#define EXTAL_KHZ	     24000u
 
 /* ---------------------------------------------------------------- SoC data */
 
@@ -288,16 +288,18 @@ static int cim_wait_not_busy(void)
 {
 	int i;
 
-	for (i = 0; i < 10000; i++) {
+	/* BUSY settles in nanoseconds; a bounded spin needs no sleep */
+	for (i = 0; i < 100000; i++) {
 		if (!(hw_cpm_rd(cur_mclk->cdr_off) & (1u << BUSY_BIT)))
 			return 0;
-		usleep(10);
 	}
 	elog("CIMCDR busy bit stuck\n");
 	return -1;
 }
 
-static uint64_t pll_rate(int pll)
+/* Rates in kHz: every supported PLL and MCLK rate is kHz-exact, and
+ * 32-bit kHz math keeps libgcc's 64-bit division helpers unlinked. */
+static uint32_t pll_rate(int pll)
 {
 	uint32_t off, r, m, n;
 
@@ -330,7 +332,7 @@ static uint64_t pll_rate(int pll)
 		od0 = (r >> 8) & 0x7;
 		if (!n || !od0 || !od1)
 			return 0;
-		return EXTAL_HZ * m / n / od0 / od1;
+		return EXTAL_KHZ * m / n / od0 / od1;
 	} else if (cur_soc->pll_style == PLLSTYLE_T41) {
 		uint32_t od1, od0;
 
@@ -340,7 +342,7 @@ static uint64_t pll_rate(int pll)
 		n = (r >> 14) & 0x3f;
 		od1 = (r >> 11) & 0x7;
 		od0 = (r >> 7) & 0xf;
-		return EXTAL_HZ * 2 * (m + 1) / ((n + 1) * (1u << od0) * (od1 + 1));
+		return EXTAL_KHZ * 2 * (m + 1) / ((n + 1) * (1u << od0) * (od1 + 1));
 	} else {
 		uint32_t od;
 
@@ -349,7 +351,7 @@ static uint64_t pll_rate(int pll)
 		m = (r >> 20) & 0x1ff;
 		n = (r >> 14) & 0x3f;
 		od = (r >> 11) & 0x7;
-		return EXTAL_HZ * 2 * (m + 1) / (n + 1) / (1u << od);
+		return EXTAL_KHZ * 2 * (m + 1) / (n + 1) / (1u << od);
 	}
 }
 
@@ -361,8 +363,8 @@ static uint64_t pll_rate(int pll)
  */
 static int mclk_enable(uint32_t hz)
 {
-	uint32_t v, muxmask, mux, div, nv;
-	uint64_t prate;
+	uint32_t v, muxmask, mux, div, nv, khz = hz / 1000;
+	uint32_t prate;
 
 	v = hw_cpm_rd(cur_mclk->cdr_off);
 	muxmask = (1u << cur_soc->mux_width) - 1;
@@ -389,7 +391,7 @@ static int mclk_enable(uint32_t hz)
 		}
 	}
 
-	div = (uint32_t)((prate + hz - 1) / hz);
+	div = (prate + khz - 1) / khz;
 	if (div < 1)
 		div = 1;
 	if (div > DIV_MASK + 1)
@@ -404,8 +406,8 @@ static int mclk_enable(uint32_t hz)
 		return -1;
 	hw_cpm_wr(cur_mclk->cdr_off, nv & ~(1u << CE_BIT));
 
-	vlog("MCLK: parent %llu Hz / %u = %llu Hz (CIMCDR 0x%08x)\n", (unsigned long long)prate,
-	     div, (unsigned long long)(prate / div), hw_cpm_rd(cur_mclk->cdr_off));
+	vlog("MCLK: parent %u kHz / %u = %u kHz (CIMCDR 0x%08x)\n", prate, div, prate / div,
+	     hw_cpm_rd(cur_mclk->cdr_off));
 	return 0;
 }
 

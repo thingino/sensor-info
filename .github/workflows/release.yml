@@ -30,7 +30,7 @@ jobs:
       - name: Build static binary
         run: |
           make CROSS_COMPILE=/opt/thingino-toolchain/bin/mipsel-linux-
-          /opt/thingino-toolchain/bin/mipsel-linux-strip sinfo
+          /opt/thingino-toolchain/bin/mipsel-linux-strip --strip-section-headers sinfo
           file sinfo | grep -q "statically linked\|static" || { echo "not static"; exit 1; }
 
       - name: Smoke test under qemu

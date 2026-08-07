@@ -99,31 +99,31 @@ static void test_pll_new_style(void)
 	mock_cpm[0x10 / 4] = 0x0740510D;
 	mock_cpm[0x14 / 4] = 0x0640510D;
 	mock_cpm[0xe0 / 4] = 0x0640510D;
-	CHECK_EQ(pll_rate(PLL_A), 1392000000ull);
-	CHECK_EQ(pll_rate(PLL_M), 1200000000ull);
-	CHECK_EQ(pll_rate(PLL_V), 1200000000ull);
+	CHECK_EQ(pll_rate(PLL_A), 1392000u);
+	CHECK_EQ(pll_rate(PLL_M), 1200000u);
+	CHECK_EQ(pll_rate(PLL_V), 1200000u);
 
 	use_soc("t20"); /* wyze v2: VPLL parked, kernel uses APLL */
 	mock_cpm[0x10 / 4] = 0x0470890D;
 	mock_cpm[0x14 / 4] = 0x07D0C90D;
 	mock_cpm[0xe0 / 4] = 0x010049C0; /* bit0 clear = off */
-	CHECK_EQ(pll_rate(PLL_A), 852000000ull);
-	CHECK_EQ(pll_rate(PLL_M), 1000000000ull);
-	CHECK_EQ(pll_rate(PLL_V), 0ull);
+	CHECK_EQ(pll_rate(PLL_A), 852000u);
+	CHECK_EQ(pll_rate(PLL_M), 1000000u);
+	CHECK_EQ(pll_rate(PLL_V), 0u);
 
 	use_soc("t40"); /* t40nn: EPLL parent for CIM1 */
 	mock_cpm[0x10 / 4] = 0x04C0510D;
 	mock_cpm[0x14 / 4] = 0x1130990D;
 	mock_cpm[0xe0 / 4] = 0x0540510D;
 	mock_cpm[0x58 / 4] = 0x1290A10D;
-	CHECK_EQ(pll_rate(PLL_A), 912000000ull);
-	CHECK_EQ(pll_rate(PLL_M), 1100000000ull);
-	CHECK_EQ(pll_rate(PLL_V), 1008000000ull);
-	CHECK_EQ(pll_rate(PLL_E), 891000000ull);
+	CHECK_EQ(pll_rate(PLL_A), 912000u);
+	CHECK_EQ(pll_rate(PLL_M), 1100000u);
+	CHECK_EQ(pll_rate(PLL_V), 1008000u);
+	CHECK_EQ(pll_rate(PLL_E), 891000u);
 
 	/* n = 0 must not divide by zero */
 	mock_cpm[0x10 / 4] = 0x07400101;
-	CHECK_EQ(pll_rate(PLL_A), 0ull);
+	CHECK_EQ(pll_rate(PLL_A), 0u);
 }
 
 static void test_pll_t41_style(void)
@@ -132,15 +132,15 @@ static void test_pll_t41_style(void)
 	mock_cpm[0x10 / 4] = 0x05B008BD; /* t41nq APLL */
 	mock_cpm[0x14 / 4] = 0x15D0889D; /* t41nq MPLL */
 	mock_cpm[0xe0 / 4] = 0x059008BD; /* t41nq VPLL */
-	CHECK_EQ(pll_rate(PLL_A), 1104000000ull);
-	CHECK_EQ(pll_rate(PLL_M), 1400000000ull);
-	CHECK_EQ(pll_rate(PLL_V), 1080000000ull);
+	CHECK_EQ(pll_rate(PLL_A), 1104000u);
+	CHECK_EQ(pll_rate(PLL_M), 1400000u);
+	CHECK_EQ(pll_rate(PLL_V), 1080000u);
 
 	mock_cpm[0x14 / 4] = 0x063008BD; /* t41lq MPLL */
-	CHECK_EQ(pll_rate(PLL_M), 1200000000ull);
+	CHECK_EQ(pll_rate(PLL_M), 1200000u);
 
 	mock_cpm[0x10 / 4] = 0x05B008BC; /* off bit */
-	CHECK_EQ(pll_rate(PLL_A), 0ull);
+	CHECK_EQ(pll_rate(PLL_A), 0u);
 }
 
 static void test_pll_old_style(void)
@@ -150,16 +150,16 @@ static void test_pll_old_style(void)
 	mock_cpm[0x14 / 4] = 0x07C0882D;
 	mock_cpm[0xe0 / 4] = 0x0310086D;
 	mock_cpm[0x58 / 4] = 0x06305040; /* EPLL parked */
-	CHECK_EQ(pll_rate(PLL_A), 900000000ull);
-	CHECK_EQ(pll_rate(PLL_M), 1000000000ull);
-	CHECK_EQ(pll_rate(PLL_V), 1200000000ull);
-	CHECK_EQ(pll_rate(PLL_E), 0ull);
+	CHECK_EQ(pll_rate(PLL_A), 900000u);
+	CHECK_EQ(pll_rate(PLL_M), 1000000u);
+	CHECK_EQ(pll_rate(PLL_V), 1200000u);
+	CHECK_EQ(pll_rate(PLL_E), 0u);
 
 	use_soc("t21"); /* t21n */
 	mock_cpm[0x10 / 4] = 0x0470484D;
 	mock_cpm[0x14 / 4] = 0x04A0484D;
-	CHECK_EQ(pll_rate(PLL_A), 864000000ull);
-	CHECK_EQ(pll_rate(PLL_M), 900000000ull);
+	CHECK_EQ(pll_rate(PLL_A), 864000u);
+	CHECK_EQ(pll_rate(PLL_M), 900000u);
 }
 
 /* --------------------------------------------------------- MCLK programming */
