@@ -8,7 +8,8 @@ CC := $(CROSS_COMPILE)gcc
 # calls, reloc sections) - 4.2 KB raw / 5% compressed on the dynamic
 # build. ASLR buys nothing for a root-run offline diagnostic.
 CFLAGS ?= -Oz -Wall -Wextra -std=gnu99 -ffunction-sections -fdata-sections \
-	  -fno-asynchronous-unwind-tables -fmerge-all-constants -fno-ident -fno-pie -flto
+	  -fno-asynchronous-unwind-tables -fmerge-all-constants -fno-ident -fno-pie -flto \
+	  -mno-abicalls
 LDFLAGS ?= -static -no-pie -Wl,--gc-sections -Wl,-z,max-page-size=0x1000
 
 OBJS := sinfo.o sinfo_hw.o
