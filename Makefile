@@ -2,7 +2,10 @@
 # smaller code faster, not just smaller.
 CROSS_COMPILE ?=
 CC := $(CROSS_COMPILE)gcc
-CFLAGS ?= -Oz -Wall -Wextra -std=gnu99 -ffunction-sections -fdata-sections
+# (raptor's -flto is deliberately absent: it exists to drop unused
+# library code, and sinfo links nothing but prebuilt libc)
+CFLAGS ?= -Oz -Wall -Wextra -std=gnu99 -ffunction-sections -fdata-sections \
+	  -fno-asynchronous-unwind-tables -fmerge-all-constants -fno-ident
 LDFLAGS ?= -static -Wl,--gc-sections -Wl,-z,max-page-size=0x1000
 
 OBJS := sinfo.o sinfo_hw.o
